@@ -1,0 +1,313 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+  OWNER
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum RecipientType {
+  ALL
+  CUSTOMERS
+  NON_CUSTOMERS
+  SPECIFIC_CATEGORY
+}
+
+enum NotifType {
+  NEW_PRODUCT
+  CATEGORY_UPDATE
+  PURCHASE_SUCCESS
+  REVIEW_APPROVED
+  SYSTEM
+  PRICE_DROP
+  ACCOUNT
+}
+
+enum LogAction {
+  CREATE
+  UPDATE
+  DELETE
+  PUBLISH
+  UNPUBLISH
+  LOGIN
+  LOGOUT
+  EMAIL_SENT
+  PURCHASE
+  DOWNLOAD
+  ROLE_CHANGE
+  SETTING_CHANGE
+}
+
+enum PaymentGateway {
+  LEMONSQUEEZY
+  SSLCOMMERZ
+}
+
+enum Currency {
+  USD
+  BDT
+}
+
+model User {
+  id       String     @id @default(cuid())
+  name     String
+  email    String     @unique
+  phone    String   @unique
+  password String
+  role     Role       @default(USER)
+  status   UserStatus @default(PENDING)
+  avatar   String?
+
+  emailVerifyToken  String?   @unique
+  emailVerifyExpiry DateTime?
+
+  resetToken       String?   @unique
+  resetTokenExpiry DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  uploads         Product[]      @relation("UploadedBy")
+  purchases       Purchase[]
+  downloads       DownloadLog[]
+  saved           SavedItem[]
+  reviews         Review[]
+  notifications   Notification[]
+  siteLogs        SiteLog[]      @relation("LogActor")
+  emailsSent      EmailLog[]
+  settingsUpdated SiteSetting[]  @relation("SettingUpdatedBy")
+
+  @@map("users")
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  icon        String?
+  coverImage  String?
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  products ProductTag[]
+
+  @@map("tags")
+}
+
+model Product {
+  id              String   @id @default(cuid())
+  title           String
+  slug            String   @unique
+  description     String   @db.Text
+  price           Float    @default(0)
+  previewVideoUrl String?
+  fileUrl         String
+  thumbnailUrl    String
+  isPublished     Boolean  @default(false)
+  isFeatured      Boolean  @default(false)
+  viewCount       Int      @default(0)
+  categoryId      String
+  uploadedById    String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  category   Category       @relation(fields: [categoryId], references: [id])
+  uploadedBy User           @relation("UploadedBy", fields: [uploadedById], references: [id])
+  images     ProductImage[]
+  tags       ProductTag[]
+  purchases  Purchase[]
+  downloads  DownloadLog[]
+  saved      SavedItem[]
+  reviews    Review[]
+
+  @@map("products")
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  url       String
+  altText   String?
+  order     Int      @default(0)
+  isCover   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_images")
+}
+
+model ProductTag {
+  productId String
+  tagId     String
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([productId, tagId])
+  @@map("product_tags")
+}
+
+model Purchase {
+  id              String          @id @default(cuid())
+  userId          String
+  productId       String
+  uploadedById    String
+  pricePaid       Float
+  currency        Currency        @default(USD)
+  gateway         PaymentGateway
+  status          PaymentStatus   @default(PENDING)
+  transactionId   String?         @unique
+  gatewayOrderId  String?     
+  gatewayResponse Json?   
+  purchasedAt     DateTime        @default(now())
+
+  user      User          @relation(fields: [userId], references: [id])
+  product   Product       @relation(fields: [productId], references: [id])
+  downloads DownloadLog[]
+
+  @@map("purchases")
+}
+
+model DownloadLog {
+  id           String   @id @default(cuid())
+  userId       String
+  productId    String
+  purchaseId   String
+  downloadedAt DateTime @default(now())
+  ipAddress    String?
+
+  user     User     @relation(fields: [userId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
+  purchase Purchase @relation(fields: [purchaseId], references: [id])
+
+  @@map("download_logs")
+}
+
+model SavedItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  savedAt   DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([userId, productId])
+  @@map("saved_items")
+}
+
+model Review {
+  id         String   @id @default(cuid())
+  userId     String
+  productId  String
+  rating     Int
+  comment    String?
+  isApproved Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([userId, productId])
+  @@map("reviews")
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      NotifType
+  refId     String?
+  refType   String?
+  isRead    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model SiteLog {
+  id        String    @id @default(cuid())
+  actorId   String
+  action    LogAction
+  entity    String
+  entityId  String?
+  detail    String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+
+  actor User @relation("LogActor", fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("site_logs")
+}
+
+model EmailLog {
+  id             String        @id @default(cuid())
+  sentById       String
+  subject        String
+  body           String        @db.Text
+  recipientType  RecipientType
+  categoryId     String?
+  recipientCount Int
+  sentAt         DateTime      @default(now())
+
+  sentBy User @relation(fields: [sentById], references: [id])
+
+  @@map("email_logs")
+}
+
+model SiteSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String   @db.Text
+  group       String
+  description String?
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  updatedBy User? @relation("SettingUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("site_settings")
+}
