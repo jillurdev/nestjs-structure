@@ -56,13 +56,6 @@ export class AuthController {
 		return this.authService.refreshToken(req, res);
 	}
 
-	// Current User
-
-	@Get("me")
-	async me(@CurrentUser() user: JwtUser) {
-		return this.authService.me(user.id);
-	}
-
 	// Logout Current Device
 
 	@Post("logout")
@@ -80,14 +73,5 @@ export class AuthController {
 		return this.authService.logoutAllDevices(user.id, res);
 	}
 
-	// Change Password
-
-	@Patch("change-password")
-	async changePassword(
-		@CurrentUser() user: JwtUser,
-		@Body() dto: ChangePasswordDto,
-		@Res({ passthrough: true }) res: Response,
-	) {
-		return this.authService.changePassword(user.id, dto, res);
-	}
+	 
 }

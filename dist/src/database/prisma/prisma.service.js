@@ -14,15 +14,16 @@ const common_1 = require("@nestjs/common");
 const adapter_pg_1 = require("@prisma/adapter-pg");
 const client_1 = require("@prisma/client");
 const app_messages_1 = require("../../common/AppMessages/app.messages");
+const config_1 = require("../../config");
 let PrismaService = class PrismaService extends client_1.PrismaClient {
     constructor() {
-        const adapter = new adapter_pg_1.PrismaPg({
-            connectionString: process.env.DATABASE_URL,
+        super({
+            adapter: new adapter_pg_1.PrismaPg({
+                connectionString: config_1.configs.database.url,
+            }),
         });
-        super({ adapter });
     }
     async onModuleInit() {
-        console.log("🔥 Prisma connecting...");
         await this.$connect();
         console.log("✅ Prisma connected");
     }
@@ -30,62 +31,63 @@ let PrismaService = class PrismaService extends client_1.PrismaClient {
         await this.$disconnect();
         console.log("🔌 Prisma disconnected");
     }
-    async findUserByIdOrThrow(id) {
+    async findUserByIdOrThrow(id, args) {
         const user = await this.user.findUnique({
             where: { id },
-            select: {
-                id: true,
-                name: true,
-                email: true,
-                phone: true,
-                role: true,
-                isActive: true,
-                isBanned: true,
-                referralCode: true,
-                banReason: true,
-                subscriptionType: true,
-                passwordHash: true,
-                balance: true,
-                totalEarned: true,
-                totalWithdrawn: true,
-                avatarUrl: true,
-                deviceId: true,
-                createdAt: true,
-                lastLoginAt: true,
-            },
+            ...args,
         });
         if (!user)
             throw new common_1.NotFoundException(app_messages_1.AppMessages.user.notFound);
         return user;
     }
-    async findUserFieldsOrThrow(id, select) {
-        const user = await this.user.findUnique({ where: { id }, select });
-        if (!user)
-            throw new common_1.NotFoundException(app_messages_1.AppMessages.user.notFound);
-        return user;
+    async findUserByEmailOrPhone(identifier) {
+        return this.user.findFirst({
+            where: {
+                OR: [
+                    {
+                        email: identifier.toLowerCase(),
+                    },
+                    {
+                        phone: identifier,
+                    },
+                ],
+            },
+        });
     }
-    async findUserByPhoneOrThrow(phone) {
-        const user = await this.user.findUnique({ where: { phone } });
-        if (!user)
-            throw new common_1.NotFoundException(app_messages_1.AppMessages.user.notFound);
-        return user;
-    }
-    async findUserByPhone(phone) {
-        return this.user.findUnique({ where: { phone } });
+    async findUserByHandle(handle) {
+        return this.user.findUnique({
+            where: { handle },
+        });
     }
     async findUserByEmail(email) {
-        return this.user.findUnique({ where: { email } });
+        return this.user.findUnique({
+            where: { email },
+        });
     }
-    async userExistsByPhone(phone) {
-        const count = await this.user.count({ where: { phone } });
-        return count > 0;
+    async findUserByPhone(phone) {
+        return this.user.findUnique({
+            where: { phone },
+        });
+    }
+    async userExistsById(id) {
+        return ((await this.user.count({
+            where: { id },
+        })) > 0);
+    }
+    async userExistsByHandle(handle) {
+        return ((await this.user.count({
+            where: { handle },
+        })) > 0);
     }
     async userExistsByEmail(email) {
-        const count = await this.user.count({ where: { email } });
-        return count > 0;
+        return ((await this.user.count({
+            where: { email },
+        })) > 0);
     }
-    async userCountByDeviceId(deviceId) {
-        return this.user.count({ where: { deviceId } });
+    async userExistsByPhone(phone) {
+        return ((await this.user.count({
+            where: { phone },
+        })) > 0);
     }
 };
 exports.PrismaService = PrismaService;

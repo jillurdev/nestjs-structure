@@ -48,21 +48,9 @@ const prisma_service_1 = require("../../database/prisma/prisma.service");
 const bcrypt = __importStar(require("bcrypt"));
 const app_messages_1 = require("../../common/AppMessages/app.messages");
 const roles_decorator_1 = require("../../common/decorators/roles.decorator");
-const referral_service_1 = require("../referral/referral.service");
 let UsersService = class UsersService {
-    constructor(prisma, referralService) {
+    constructor(prisma) {
         this.prisma = prisma;
-        this.referralService = referralService;
-    }
-    async generateReferralCode() {
-        const random = Math.floor(100000 + Math.random() * 900000).toString();
-        const code = `TN-${random}`;
-        const existing = await this.prisma.user.findFirst({
-            where: { referralCode: code },
-        });
-        if (existing)
-            return this.generateReferralCode();
-        return code;
     }
     async findAllUsers() {
         return this.prisma.user.findMany({
@@ -89,48 +77,6 @@ let UsersService = class UsersService {
     }
     async findUserByPhone(phone) {
         return this.prisma.findUserByPhone(phone);
-    }
-    async createUser(dto) {
-        if (await this.prisma.userExistsByPhone(dto.phone))
-            throw new common_1.ConflictException(app_messages_1.AppMessages.user.phoneExists);
-        if (dto.email && (await this.prisma.userExistsByEmail(dto.email)))
-            throw new common_1.ConflictException(app_messages_1.AppMessages.user.emailExists);
-        if (dto.deviceId) {
-            const count = await this.prisma.userCountByDeviceId(dto.deviceId);
-            if (count >= 2)
-                throw new common_1.BadRequestException(app_messages_1.AppMessages.user.deviceLimit);
-        }
-        const passwordHash = await bcrypt.hash(dto.password, 10);
-        const referralCode = await this.generateReferralCode();
-        const user = await this.prisma.user.create({
-            data: {
-                name: dto.name,
-                phone: dto.phone,
-                passwordHash,
-                referralCode,
-                ...(dto.email && { email: dto.email }),
-                ...(dto.deviceId && { deviceId: dto.deviceId }),
-            },
-            select: {
-                id: true,
-                name: true,
-                email: true,
-                referralCode: true,
-                phone: true,
-                role: true,
-                subscriptionType: true,
-                balance: true,
-                createdAt: true,
-            },
-        });
-        if (dto.referralCode) {
-            try {
-                await this.referralService.applyReferral(user.id, dto.referralCode);
-            }
-            catch (e) {
-            }
-        }
-        return user;
     }
     async saveFcmToken(userId, fcmToken) {
         return this.prisma.user.update({
@@ -206,22 +152,6 @@ let UsersService = class UsersService {
             select: { id: true, isBanned: true },
         });
     }
-    async getUserStats(id) {
-        const user = await this.prisma.findUserByIdOrThrow(id);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayRecord = await this.prisma.dailyAdLimit.findUnique({
-            where: { userId_date: { userId: id, date: today } },
-        });
-        return {
-            balance: user.balance,
-            totalEarned: user.totalEarned,
-            totalWithdrawn: user.totalWithdrawn,
-            subscriptionType: user.subscriptionType,
-            todayWatchCount: todayRecord?.watchCount ?? 0,
-            todayEarned: todayRecord?.earned ?? 0,
-        };
-    }
     async deleteUser(id) {
         await this.prisma.findUserByIdOrThrow(id);
         await this.prisma.user.delete({ where: { id } });
@@ -231,7 +161,6 @@ let UsersService = class UsersService {
 exports.UsersService = UsersService;
 exports.UsersService = UsersService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        referral_service_1.ReferralService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], UsersService);
 //# sourceMappingURL=users.service.js.map

@@ -3,38 +3,20 @@ import {
 	ConflictException,
 	Injectable,
 } from "@nestjs/common";
+import { Request, Response } from "express";
 import { PrismaService } from "@/database/prisma/prisma.service";
-import { UpdateUserDto } from "./dto/update-user.dto";
 import * as bcrypt from "bcrypt";
 import { AppMessages } from "@/common/AppMessages/app.messages";
-import { CreateUserDto } from "./dto/create-user.dto";
-import { Role } from "@/common/decorators/roles.decorator";
+import { ChangePasswordDto } from "./dto/change-password.dto";
+import { AccountType } from "@prisma/client";
+import { configs } from "@/config";
 
 @Injectable()
 export class UsersService {
 	constructor(private readonly prisma: PrismaService) {}
 
 	// admin/ owner
-	async findAllUsers() {
-		return this.prisma.user.findMany({
-			where: { role: Role.USER },
-			select: {
-				id: true,
-				name: true,
-				email: true,
-				phone: true,
-				role: true,
-				isActive: true,
-				isBanned: true,
-				subscriptionType: true,
-				balance: true,
-				totalEarned: true,
-				totalWithdrawn: true,
-				createdAt: true,
-			},
-			orderBy: { createdAt: "desc" },
-		});
-	}
+	async findAllUsers() {}
 
 	async findUserById(id: string) {
 		return this.prisma.findUserByIdOrThrow(id);
@@ -44,125 +26,96 @@ export class UsersService {
 		return this.prisma.findUserByPhone(phone);
 	}
 
-	async createUser(dto: CreateUserDto) {
-		if (await this.prisma.userExistsByPhone(dto.phone))
-			throw new ConflictException(AppMessages.user.phoneExists);
+	async me(userId: string) {
+		const user = await this.prisma.findUserByIdOrThrow(userId);
 
-		if (dto.email && (await this.prisma.userExistsByEmail(dto.email)))
-			throw new ConflictException(AppMessages.user.emailExists);
-
-		const passwordHash = await bcrypt.hash(dto.password, 10);
-
-		const user = await this.prisma.user.create({
-			data: {
-				name: dto.name,
-				phone: dto.phone,
-				passwordHash,
-				email,
-			},
-			select: {
-				id: true,
-				name: true,
-				email: true,
-				phone: true,
-				role: true,
-				balance: true,
-				createdAt: true,
+		const account = await this.prisma.account.findFirst({
+			where: {
+				userId,
+				accountType: AccountType.MAIN,
 			},
 		});
 
-		return user;
+		return {
+			id: user.id,
+			handle: user.handle,
+			fullName: user.fullName,
+			email: user.email,
+			phone: user.phone,
+			avatarUrl: user.avatarUrl,
+			bio: user.bio,
+			status: user.status,
+			isVerified: user.isVerified,
+			kycTier: user.kyc_tier,
+			vybeScore: user.vybeScore,
+			createdAt: user.createdAt,
+
+			account: account
+				? {
+						id: account.id,
+						virtualAccountNumber: account.virtualAccountNumber,
+						balance: account.balance,
+						currency: account.currency,
+						accountType: account.accountType,
+					}
+				: null,
+		};
 	}
 
-	async saveFcmToken(userId: string, fcmToken: string) {
-		return this.prisma.user.update({
-			where: { id: userId },
-			data: { fcmToken },
-			select: { id: true },
-		});
-	}
+	async changePassword(userId: string, dto: ChangePasswordDto, res: Response) {
+		const user = await this.prisma.findUserByIdOrThrow(userId);
 
-	async updateUser(id: string, dto: UpdateUserDto) {
-		await this.prisma.findUserByIdOrThrow(id);
+		const passwordMatched = await bcrypt.compare(
+			dto.currentPassword,
+			user.passwordHash,
+		);
 
-		const data: any = {};
-		if (dto.name) data.name = dto.name;
-		if (dto.email) data.email = dto.email;
-		if (dto.phone) data.phone = dto.phone;
-		if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 10);
-		if (dto.avatarUrl) data.avatarUrl = dto.avatarUrl;
+		if (!passwordMatched) {
+			throw new BadRequestException(AppMessages.user.incorrectPassword);
+		}
 
-		return this.prisma.user.update({
-			where: { id },
-			data,
-			select: {
-				id: true,
-				name: true,
-				email: true,
-				phone: true,
-				role: true,
-				subscriptionType: true,
-				avatarUrl: true,
-				updatedAt: true,
-			},
-		});
-	}
-
-	async changePassword(
-		id: string,
-		currentPassword: string,
-		newPassword: string,
-	) {
-		if (currentPassword === newPassword) {
+		if (dto.currentPassword === dto.newPassword) {
 			throw new BadRequestException(AppMessages.user.passwordSameAsOld);
 		}
 
-		const user = await this.prisma.findUserByIdOrThrow(id);
+		const passwordHash = await bcrypt.hash(dto.newPassword, 12);
 
-		const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
-		if (!isMatch)
-			throw new BadRequestException(AppMessages.user.incorrectPassword);
+		await this.prisma.$transaction([
+			this.prisma.user.update({
+				where: {
+					id: userId,
+				},
+				data: {
+					passwordHash,
+				},
+			}),
 
-		await this.prisma.user.update({
-			where: { id },
-			data: { passwordHash: await bcrypt.hash(newPassword, 10) },
+			this.prisma.session.updateMany({
+				where: {
+					userId,
+					revokedAt: null,
+				},
+				data: {
+					revokedAt: new Date(),
+					revokedReason: "PASSWORD_CHANGED",
+				},
+			}),
+		]);
+
+		res.clearCookie("accessToken", {
+			httpOnly: true,
+			secure: configs.app.isProduction,
+			sameSite: "lax",
 		});
-	}
 
-	async banUser(id: string, reason: string, adminId: string) {
-		await this.prisma.findUserByIdOrThrow(id);
-
-		return this.prisma.user.update({
-			where: { id },
-			data: {
-				isBanned: true,
-				banReason: reason,
-				bannedAt: new Date(),
-				bannedBy: adminId,
-			},
-			select: { id: true, isBanned: true, banReason: true },
+		res.clearCookie("refreshToken", {
+			httpOnly: true,
+			secure: configs.app.isProduction,
+			sameSite: "lax",
 		});
-	}
 
-	async unbanUser(id: string) {
-		await this.prisma.findUserByIdOrThrow(id);
-
-		return this.prisma.user.update({
-			where: { id },
-			data: {
-				isBanned: false,
-				banReason: null,
-				bannedAt: null,
-				bannedBy: null,
-			},
-			select: { id: true, isBanned: true },
-		});
-	}
-
- 
-	async deleteUser(id: string) {
-		await this.prisma.findUserByIdOrThrow(id);
-		await this.prisma.user.delete({ where: { id } });
-		return { message: AppMessages.user.deleted };
+		return {
+			message: AppMessages.user.passwordChanged,
+		};
 	}
 }

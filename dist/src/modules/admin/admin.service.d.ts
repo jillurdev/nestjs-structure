@@ -40,13 +40,13 @@ export declare class AdminService {
     }[]>;
     getSettings(): Promise<{
         id: string;
-        description: string | null;
         updatedAt: Date;
+        description: string | null;
         key: string;
         value: string;
         updatedBy: string | null;
     }[]>;
     giveBonus(userId: string, amount: number, reason: string, adminId: string): Promise<{
-        userName: string;
+        userName: any;
     }>;
 }

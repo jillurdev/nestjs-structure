@@ -10,10 +10,6 @@ import { PrismaModule } from "./database/prisma/prisma.module";
 
 import { AuthModule } from "./modules/auth/auth.module";
 import { UsersModule } from "./modules/users/users.module";
-import { WithdrawalModule } from "./modules/withdrawal/withdrawal.module";
-import { NotificationModule } from "./modules/notification/notification.module";
-import { AdminModule } from "./modules/admin/admin.module";
-import { OwnerModule } from "./modules/owner/owner.module";
 import { MailModule } from "./shared/mail/mail.module";
 
 // Guards
@@ -53,15 +49,11 @@ import { ResponseInterceptor } from "./common/interceptors";
 		PrismaModule,
 
 		// Shared
-		// MailModule,
+		MailModule,
 
 		// Feature Modules
 		AuthModule,
-		UsersModule,
-		WithdrawalModule,
-		NotificationModule,
-		AdminModule,
-		OwnerModule,
+		UsersModule, 
 	],
 
 	controllers: [AppController],

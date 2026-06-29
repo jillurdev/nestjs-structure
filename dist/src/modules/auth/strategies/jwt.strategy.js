@@ -15,6 +15,7 @@ const passport_1 = require("@nestjs/passport");
 const passport_jwt_1 = require("passport-jwt");
 const prisma_service_1 = require("../../../database/prisma/prisma.service");
 const config_1 = require("../../../config");
+const client_1 = require("@prisma/client");
 let JwtStrategy = class JwtStrategy extends (0, passport_1.PassportStrategy)(passport_jwt_1.Strategy) {
     constructor(prisma) {
         super({
@@ -22,31 +23,39 @@ let JwtStrategy = class JwtStrategy extends (0, passport_1.PassportStrategy)(pas
                 (req) => req?.cookies?.accessToken,
                 passport_jwt_1.ExtractJwt.fromAuthHeaderAsBearerToken(),
             ]),
+            ignoreExpiration: false,
             secretOrKey: config_1.configs.jwt.secret,
         });
         this.prisma = prisma;
     }
     async validate(payload) {
-        const user = await this.prisma.user.findUnique({
-            where: { id: payload.sub },
+        const user = await this.prisma.findUserByIdOrThrow(payload.sub, {
             select: {
                 id: true,
-                name: true,
+                handle: true,
+                fullName: true,
                 email: true,
                 phone: true,
-                role: true,
-                isActive: true,
-                isBanned: true,
-                subscriptionType: true,
-                balance: true,
+                avatarUrl: true,
+                isVerified: true,
+                status: true,
+                kyc_tier: true,
             },
         });
-        if (!user)
-            throw new common_1.UnauthorizedException();
-        if (!user.isActive)
-            throw new common_1.UnauthorizedException("Account is not active");
-        if (user.isBanned)
-            throw new common_1.UnauthorizedException("Account is banned");
+        switch (user.status) {
+            case client_1.UserStatus.ACTIVE:
+                break;
+            case client_1.UserStatus.PENDING_VERIFICATION:
+                throw new common_1.ForbiddenException("Your account is pending verification.");
+            case client_1.UserStatus.SUSPENDED:
+                throw new common_1.ForbiddenException("Your account has been suspended.");
+            case client_1.UserStatus.BANNED:
+                throw new common_1.ForbiddenException("Your account has been banned.");
+            case client_1.UserStatus.CLOSED:
+                throw new common_1.ForbiddenException("Your account has been closed.");
+            default:
+                throw new common_1.UnauthorizedException();
+        }
         return user;
     }
 };

@@ -36,20 +36,20 @@ export declare class OwnerService {
         email?: string;
     }): Promise<{
         id: string;
-        createdAt: Date;
-        name: string;
         email: string | null;
         phone: string;
+        name: string;
         role: import(".prisma/client").$Enums.Role;
+        createdAt: Date;
     }>;
     getAdmins(): Promise<{
         id: string;
-        isActive: boolean;
-        createdAt: Date;
-        name: string;
         email: string | null;
         phone: string;
+        name: string;
+        isActive: boolean;
         lastLoginAt: Date | null;
+        createdAt: Date;
     }[]>;
     toggleAdminStatus(adminId: string): Promise<{
         id: string;
@@ -59,8 +59,8 @@ export declare class OwnerService {
     getSettings(): Promise<Record<string, string>>;
     updateSetting(key: string, value: string, ownerId: string): Promise<{
         id: string;
-        description: string | null;
         updatedAt: Date;
+        description: string | null;
         key: string;
         value: string;
         updatedBy: string | null;

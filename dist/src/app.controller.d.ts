@@ -1,4 +1,8 @@
-import { Response } from "express";
 export declare class AppController {
-    check(res: Response): void;
+    check(): {
+        status: string;
+        message: string;
+        uptime: number;
+        version: string;
+    };
 }

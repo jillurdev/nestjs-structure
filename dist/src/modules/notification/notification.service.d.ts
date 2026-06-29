@@ -6,36 +6,36 @@ export declare class NotificationService {
     private readonly firebase;
     constructor(prisma: PrismaService, firebase: FirebaseService);
     create(userId: string, type: NotificationType, title: string, body: string, data?: object): Promise<{
-        data: import("@prisma/client/runtime/client").JsonValue | null;
         id: string;
-        title: string;
         createdAt: Date;
+        data: import("@prisma/client/runtime/client").JsonValue | null;
         type: import(".prisma/client").$Enums.NotificationType;
-        userId: string;
+        title: string;
         body: string;
         isRead: boolean;
+        userId: string;
     }>;
     sendPushToUser(userId: string, title: string, body: string, data?: Record<string, string>): Promise<void>;
     createAndSend(userId: string, type: NotificationType, title: string, body: string, data?: Record<string, string>): Promise<{
-        data: import("@prisma/client/runtime/client").JsonValue | null;
         id: string;
-        title: string;
         createdAt: Date;
+        data: import("@prisma/client/runtime/client").JsonValue | null;
         type: import(".prisma/client").$Enums.NotificationType;
-        userId: string;
+        title: string;
         body: string;
         isRead: boolean;
+        userId: string;
     }>;
     getUserNotifications(userId: string, page?: number, limit?: number): Promise<{
         notifications: {
-            data: import("@prisma/client/runtime/client").JsonValue | null;
             id: string;
-            title: string;
             createdAt: Date;
+            data: import("@prisma/client/runtime/client").JsonValue | null;
             type: import(".prisma/client").$Enums.NotificationType;
-            userId: string;
+            title: string;
             body: string;
             isRead: boolean;
+            userId: string;
         }[];
         unreadCount: number;
         meta: {
@@ -45,14 +45,14 @@ export declare class NotificationService {
         };
     }>;
     markAsRead(userId: string, notificationId: string): Promise<{
-        data: import("@prisma/client/runtime/client").JsonValue | null;
         id: string;
-        title: string;
         createdAt: Date;
+        data: import("@prisma/client/runtime/client").JsonValue | null;
         type: import(".prisma/client").$Enums.NotificationType;
-        userId: string;
+        title: string;
         body: string;
         isRead: boolean;
+        userId: string;
     }>;
     markAllAsRead(userId: string): Promise<{
         message: string;

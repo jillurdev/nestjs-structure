@@ -11,96 +11,110 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthController = void 0;
 const common_1 = require("@nestjs/common");
-const login_dto_1 = require("./dto/login.dto");
-const auth_service_1 = require("./auth.service");
-const http_status_1 = __importDefault(require("http-status"));
-const helpers_1 = require("../../common/helpers");
-const public_decorator_1 = require("../../common/decorators/public.decorator");
-const app_messages_1 = require("../../common/AppMessages/app.messages");
 const throttler_1 = require("@nestjs/throttler");
+const auth_service_1 = require("./auth.service");
+const public_decorator_1 = require("../../common/decorators/public.decorator");
+const current_user_decorator_1 = require("../../common/decorators/current-user.decorator");
+const register_dto_1 = require("./dto/register.dto");
+const login_dto_1 = require("./dto/login.dto");
+const change_password_dto_1 = require("../users/dto/change-password.dto");
 let AuthController = class AuthController {
     constructor(authService) {
         this.authService = authService;
     }
-    async login(dto, res) {
-        const data = await this.authService.login(dto, res);
-        (0, helpers_1.responseHandler)(res, {
-            statusCode: http_status_1.default.OK,
-            success: true,
-            message: app_messages_1.AppMessages.auth.loginSuccess,
-            data,
-        });
+    async register(dto, req, res) {
+        return this.authService.register(dto, req, res);
     }
-    async refresh(req, res) {
-        const token = req.cookies?.refreshToken;
-        const data = await this.authService.refreshToken(token, res);
-        (0, helpers_1.responseHandler)(res, {
-            statusCode: http_status_1.default.OK,
-            success: true,
-            message: app_messages_1.AppMessages.auth.tokenRefreshed,
-            data,
-        });
+    async login(dto, req, res) {
+        return this.authService.login(dto, req, res);
     }
-    async getMe(req, res) {
-        (0, helpers_1.responseHandler)(res, {
-            statusCode: http_status_1.default.OK,
-            success: true,
-            message: app_messages_1.AppMessages.user.retrieved,
-            data: req.user,
-        });
+    async refreshToken(req, res) {
+        return this.authService.refreshToken(req, res);
+    }
+    async me(user) {
+        return this.authService.me(user.id);
     }
     async logout(req, res) {
-        const data = await this.authService.logout(req.user.id, res);
-        (0, helpers_1.responseHandler)(res, {
-            statusCode: http_status_1.default.OK,
-            success: true,
-            message: app_messages_1.AppMessages.auth.logoutSuccess,
-            data,
-        });
+        return this.authService.logout(req, res);
+    }
+    async logoutAllDevices(user, res) {
+        return this.authService.logoutAllDevices(user.id, res);
+    }
+    async changePassword(user, dto, res) {
+        return this.authService.changePassword(user.id, dto, res);
     }
 };
 exports.AuthController = AuthController;
 __decorate([
-    (0, throttler_1.Throttle)({ short: { limit: 3, ttl: 60000 } }),
     (0, public_decorator_1.Public)(),
+    (0, common_1.Post)("register"),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
+    __param(2, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [register_dto_1.RegisterDto, Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "register", null);
+__decorate([
+    (0, public_decorator_1.Public)(),
+    (0, throttler_1.Throttle)({
+        login: {
+            limit: 5,
+            ttl: 60,
+        },
+    }),
     (0, common_1.Post)("login"),
     __param(0, (0, common_1.Body)()),
-    __param(1, (0, common_1.Res)()),
+    __param(1, (0, common_1.Req)()),
+    __param(2, (0, common_1.Res)({ passthrough: true })),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [login_dto_1.LoginDto, Object]),
+    __metadata("design:paramtypes", [login_dto_1.LoginDto, Object, Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "login", null);
 __decorate([
     (0, public_decorator_1.Public)(),
     (0, common_1.Post)("refresh"),
     __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Res)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
-], AuthController.prototype, "refresh", null);
+], AuthController.prototype, "refreshToken", null);
 __decorate([
     (0, common_1.Get)("me"),
-    __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Res)()),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
-], AuthController.prototype, "getMe", null);
+], AuthController.prototype, "me", null);
 __decorate([
     (0, common_1.Post)("logout"),
     __param(0, (0, common_1.Req)()),
-    __param(1, (0, common_1.Res)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "logout", null);
+__decorate([
+    (0, common_1.Post)("logout-all"),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "logoutAllDevices", null);
+__decorate([
+    (0, common_1.Patch)("change-password"),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, change_password_dto_1.ChangePasswordDto, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "changePassword", null);
 exports.AuthController = AuthController = __decorate([
     (0, common_1.Controller)("auth"),
     __metadata("design:paramtypes", [auth_service_1.AuthService])
