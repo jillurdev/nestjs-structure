@@ -1,9 +1,15 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import {
+	Injectable,
+	UnauthorizedException,
+	ForbiddenException,
+} from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
-import { PrismaService } from "@/database/prisma/prisma.service";
 import { Request } from "express";
+
+import { PrismaService } from "@/database/prisma/prisma.service";
 import { configs } from "@/config";
+import { UserStatus } from "@prisma/client";
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -13,30 +19,45 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 				(req: Request) => req?.cookies?.accessToken,
 				ExtractJwt.fromAuthHeaderAsBearerToken(),
 			]),
+			ignoreExpiration: false,
 			secretOrKey: configs.jwt.secret,
 		});
 	}
 
-	async validate(payload: { sub: string; phone: string; role: string }) {
-		const user = await this.prisma.user.findUnique({
-			where: { id: payload.sub },
+	async validate(payload: { sub: string; phone: string }) {
+		const user = await this.prisma.findUserByIdOrThrow(payload.sub, {
 			select: {
 				id: true,
-				name: true,
+				handle: true,
+				fullName: true,
 				email: true,
 				phone: true,
-				role: true,
-				isActive: true,
-				isBanned: true,
-				subscriptionType: true,
-				balance: true,
+				avatarUrl: true,
+				isVerified: true,
+				status: true,
+				kyc_tier: true,
 			},
 		});
 
-		if (!user) throw new UnauthorizedException();
-		if (!user.isActive)
-			throw new UnauthorizedException("Account is not active");
-		if (user.isBanned) throw new UnauthorizedException("Account is banned");
+		switch (user.status) {
+			case UserStatus.ACTIVE:
+				break;
+
+			case UserStatus.PENDING_VERIFICATION:
+				throw new ForbiddenException("Your account is pending verification.");
+
+			case UserStatus.SUSPENDED:
+				throw new ForbiddenException("Your account has been suspended.");
+
+			case UserStatus.BANNED:
+				throw new ForbiddenException("Your account has been banned.");
+
+			case UserStatus.CLOSED:
+				throw new ForbiddenException("Your account has been closed.");
+
+			default:
+				throw new UnauthorizedException();
+		}
 
 		return user;
 	}

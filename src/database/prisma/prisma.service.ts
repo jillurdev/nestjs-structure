@@ -1,12 +1,13 @@
 import {
 	Injectable,
-	OnModuleInit,
-	OnModuleDestroy,
 	NotFoundException,
+	OnModuleDestroy,
+	OnModuleInit,
 } from "@nestjs/common";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma, User, Account, Admin } from "@prisma/client";
 import { AppMessages } from "@/common/AppMessages/app.messages";
+import { configs } from "@/config";
 
 @Injectable()
 export class PrismaService
@@ -14,14 +15,14 @@ export class PrismaService
 	implements OnModuleInit, OnModuleDestroy
 {
 	constructor() {
-		const adapter = new PrismaPg({
-			connectionString: process.env.DATABASE_URL,
+		super({
+			adapter: new PrismaPg({
+				connectionString: configs.database.url,
+			}),
 		});
-		super({ adapter });
 	}
 
 	async onModuleInit() {
-		console.log("🔥 Prisma connecting...");
 		await this.$connect();
 		console.log("✅ Prisma connected");
 	}
@@ -31,70 +32,205 @@ export class PrismaService
 		console.log("🔌 Prisma disconnected");
 	}
 
-	// ─── User Helpers ─────────────────────────────────────────────
+	// ============================================================
+	// USER HELPERS
+	// ============================================================
 
-	async findUserByIdOrThrow(id: string) {
+	async findUserByIdOrThrow(
+		id: string,
+		args?: Omit<Prisma.UserFindUniqueArgs, "where">,
+	) {
 		const user = await this.user.findUnique({
 			where: { id },
-			select: {
-				id: true,
-				name: true,
-				email: true,
-				phone: true,
-				role: true,
-				isActive: true,
-				isBanned: true,
-				referralCode: true,
-				banReason: true,
-				subscriptionType: true,
-				passwordHash: true,
-				balance: true,
-				totalEarned: true,
-				totalWithdrawn: true,
-				avatarUrl: true,
-				deviceId: true,
-				createdAt: true,
-				lastLoginAt: true,
+			...args,
+		});
+
+		if (!user) throw new NotFoundException(AppMessages.user.notFound);
+
+		return user;
+	}
+
+	async findUserByEmailOrPhone(identifier: string) {
+		return this.user.findFirst({
+			where: {
+				OR: [
+					{
+						email: identifier.toLowerCase(),
+					},
+					{
+						phone: identifier,
+					},
+				],
 			},
 		});
-		if (!user) throw new NotFoundException(AppMessages.user.notFound);
-		return user;
 	}
-
-	async findUserFieldsOrThrow<T extends Record<string, boolean>>(
-		id: string,
-		select: T,
-	) {
-		const user = await this.user.findUnique({ where: { id }, select });
-		if (!user) throw new NotFoundException(AppMessages.user.notFound);
-		return user;
-	}
-
-	async findUserByPhoneOrThrow(phone: string) {
-		const user = await this.user.findUnique({ where: { phone } });
-		if (!user) throw new NotFoundException(AppMessages.user.notFound);
-		return user;
-	}
-
-	async findUserByPhone(phone: string) {
-		return this.user.findUnique({ where: { phone } });
+	async findUserByHandle(handle: string) {
+		return this.user.findUnique({
+			where: { handle },
+		});
 	}
 
 	async findUserByEmail(email: string) {
-		return this.user.findUnique({ where: { email } });
+		return this.user.findUnique({
+			where: { email },
+		});
 	}
 
-	async userExistsByPhone(phone: string) {
-		const count = await this.user.count({ where: { phone } });
-		return count > 0;
+	async findUserByPhone(phone: string) {
+		return this.user.findUnique({
+			where: { phone },
+		});
+	}
+
+	async userExistsById(id: string) {
+		return (
+			(await this.user.count({
+				where: { id },
+			})) > 0
+		);
+	}
+
+	async userExistsByHandle(handle: string) {
+		return (
+			(await this.user.count({
+				where: { handle },
+			})) > 0
+		);
 	}
 
 	async userExistsByEmail(email: string) {
-		const count = await this.user.count({ where: { email } });
-		return count > 0;
+		return (
+			(await this.user.count({
+				where: { email },
+			})) > 0
+		);
 	}
 
-	async userCountByDeviceId(deviceId: string) {
-		return this.user.count({ where: { deviceId } });
+	async userExistsByPhone(phone: string) {
+		return (
+			(await this.user.count({
+				where: { phone },
+			})) > 0
+		);
+	}
+
+	// ============================================================
+	// ACCOUNT HELPERS
+	// ============================================================
+
+	async findAccountByIdOrThrow(
+		id: string,
+		args?: Omit<Prisma.AccountFindUniqueArgs, "where">,
+	) {
+		const account = await this.account.findUnique({
+			where: { id },
+			...args,
+		});
+
+		if (!account) throw new NotFoundException(AppMessages.account.notFound);
+
+		return account;
+	}
+
+	async findMainAccountByUserId(userId: string) {
+		return this.account.findFirst({
+			where: {
+				userId,
+				accountType: "MAIN",
+			},
+		});
+	}
+
+	async findSavingsAccountByUserId(userId: string) {
+		return this.account.findFirst({
+			where: {
+				userId,
+				accountType: "SAVINGS",
+			},
+		});
+	}
+
+	// ============================================================
+	// ADMIN HELPERS
+	// ============================================================
+
+	async findAdminByIdOrThrow(id: string) {
+		const admin = await this.admin.findUnique({
+			where: { id },
+		});
+
+		if (!admin) throw new NotFoundException(AppMessages.admin.notFound);
+
+		return admin;
+	}
+
+	async adminExistsByEmail(email: string) {
+		return (
+			(await this.admin.count({
+				where: { email },
+			})) > 0
+		);
+	}
+
+	// ============================================================
+	// DEVICE TOKEN HELPERS
+	// ============================================================
+
+	async findDeviceToken(token: string) {
+		return this.deviceToken.findUnique({
+			where: {
+				token,
+			},
+		});
+	}
+
+	// ============================================================
+	// KYC
+	// ============================================================
+
+	async findLatestKyc(userId: string) {
+		return this.kycRecord.findFirst({
+			where: { userId },
+			orderBy: {
+				createdAt: "desc",
+			},
+		});
+	}
+
+	// ============================================================
+	// CARD
+	// ============================================================
+
+	async findCardByIdOrThrow(id: string) {
+		const card = await this.card.findUnique({
+			where: { id },
+		});
+
+		if (!card) throw new NotFoundException(AppMessages.card.notFound);
+
+		return card;
+	}
+
+	// ============================================================
+	// TRANSACTION
+	// ============================================================
+
+	async findTransactionByIdOrThrow(id: string) {
+		const transaction = await this.transaction.findUnique({
+			where: { id },
+		});
+
+		if (!transaction)
+			throw new NotFoundException(AppMessages.transaction.notFound);
+
+		return transaction;
+	}
+
+	async transactionReferenceExists(reference: string) {
+		return (
+			(await this.transaction.count({
+				where: { reference },
+			})) > 0
+		);
 	}
 }

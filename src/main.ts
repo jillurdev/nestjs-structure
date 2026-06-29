@@ -1,74 +1,71 @@
 import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { AppModule } from "./app.module";
-import cookieParser from "cookie-parser";
-import { PrismaExceptionFilter } from "./common/filters/prisma-exception.filter";
-import { runSeed } from "prisma/seed";
-import { configs } from "./config";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import cookieParser from "cookie-parser";
+
+import { AppModule } from "./app.module";
+import { configs } from "./config";
 
 async function bootstrap() {
-	try {
-		await runSeed();
-	} catch (e) {
-		console.error("❌ Seed error:", e);
-	}
-
 	const app = await NestFactory.create(AppModule);
-
-	app.use((req: any, res: any, next: any) => {
-		const logger = new Logger("HTTP");
-		logger.log(
-			`${req.method} ${req.url} — Origin: ${req.headers.origin || "direct"}`,
-		);
-		next();
-	});
-
-	app.use(cookieParser());
 
 	app.setGlobalPrefix("api/v1");
 
-	app.useGlobalFilters(new PrismaExceptionFilter());
+	app.use(cookieParser());
 
 	app.useGlobalPipes(
 		new ValidationPipe({
 			whitelist: true,
 			transform: true,
 			forbidNonWhitelisted: true,
+			stopAtFirstError: true,
+			transformOptions: {
+				enableImplicitConversion: true,
+			},
 		}),
 	);
 
 	app.enableCors({
 		origin: (origin, callback) => {
 			const allowedOrigins = configs.app.allowedOrigins;
+
 			if (!origin || allowedOrigins.includes(origin)) {
-				callback(null, true);
-			} else {
-				callback(new Error("Not allowed by CORS"));
+				return callback(null, true);
 			}
+
+			callback(new Error("Not allowed by CORS"));
 		},
 		credentials: true,
-		methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-		allowedHeaders: ["Content-Type", "Authorization"],
 	});
 
-	// ─── Swagger setup ────────────────────────────────────────────
+	// Swagger
 	if (!configs.app.isProduction) {
 		const swaggerConfig = new DocumentBuilder()
-			.setTitle("TakaNib API")
-			.setDescription("API documentation for TakaNibo — earning marketplace")
-			.setVersion("1.0")
-			.addCookieAuth("token")
+			.setTitle("Vyyve Bank API")
+			.setDescription("API documentation for Vyyve Bank")
+			.setVersion("1.0.0")
+			.addBearerAuth()
+			.addCookieAuth("accessToken")
 			.build();
 
 		const document = SwaggerModule.createDocument(app, swaggerConfig);
+
 		SwaggerModule.setup("api/docs", app, document);
 	}
 
 	await app.listen(configs.app.port);
-	console.log(`🚀 Server running on http://localhost:${configs.app.port}`);
-	console.log(
-		`📄 Swagger docs at http://localhost:${configs.app.port}/api/docs`,
-	);
+
+	const logger = new Logger("Bootstrap");
+
+	const host = await app.getUrl();
+
+	logger.log(`🚀 Server running on ${host}`);
+	logger.log(`🌍 Environment: ${configs.app.env}`);
+	logger.log(`📦 API Base: ${host}/api/v1`);
+
+	if (!configs.app.isProduction) {
+		logger.log(`📄 Swagger: ${host}/api/docs`);
+	}
 }
+
 bootstrap();

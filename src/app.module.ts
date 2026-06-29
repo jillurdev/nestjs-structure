@@ -1,44 +1,61 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { CacheModule } from "@nestjs/cache-manager";
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+
+import { AppController } from "./app.controller";
+
 import { PrismaModule } from "./database/prisma/prisma.module";
-import { MailModule } from "./shared/mail/mail.module";
+
 import { AuthModule } from "./modules/auth/auth.module";
 import { UsersModule } from "./modules/users/users.module";
-import { AppController } from "./app.controller";
-import { APP_GUARD } from "@nestjs/core";
-import { RolesGuard } from "./common/guards";
 import { WithdrawalModule } from "./modules/withdrawal/withdrawal.module";
-import { JwtAuthGuard } from "./modules/auth/guards/jwt-auth.guard";
 import { NotificationModule } from "./modules/notification/notification.module";
 import { AdminModule } from "./modules/admin/admin.module";
 import { OwnerModule } from "./modules/owner/owner.module";
-import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
+import { MailModule } from "./shared/mail/mail.module";
+
+// Guards
+import { JwtAuthGuard } from "./modules/auth/guards/jwt-auth.guard";
+import { RolesGuard } from "./common/guards";
+
+// Filters & Interceptors
+import { GlobalExceptionFilter } from "./common/filters";
+import { ResponseInterceptor } from "./common/interceptors";
 
 @Module({
-	controllers: [AppController],
 	imports: [
-		ThrottlerModule.forRoot([
-			{
-				name: "short",
-				ttl: 1000,
-				limit: 5,
-			},
-			{
-				name: "long",
-				ttl: 60000,
-				limit: 100,
-			},
-		]),
 		ConfigModule.forRoot({
 			isGlobal: true,
+			cache: true,
+			expandVariables: true,
 		}),
+
 		CacheModule.register({
 			isGlobal: true,
-			ttl: 60 * 5 * 1000,
+			ttl: 60 * 5, // 5 minutes (seconds)
 		}),
+
+		ThrottlerModule.forRoot([
+			{
+				name: "default",
+				ttl: 60,
+				limit: 100,
+			},
+			{
+				name: "login",
+				ttl: 60,
+				limit: 5,
+			},
+		]),
+
 		PrismaModule,
+
+		// Shared
 		// MailModule,
+
+		// Feature Modules
 		AuthModule,
 		UsersModule,
 		WithdrawalModule,
@@ -46,18 +63,38 @@ import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 		AdminModule,
 		OwnerModule,
 	],
+
+	controllers: [AppController],
+
 	providers: [
+		// Global Rate Limit
+		{
+			provide: APP_GUARD,
+			useClass: ThrottlerGuard,
+		},
+
+		// JWT Authentication
 		{
 			provide: APP_GUARD,
 			useClass: JwtAuthGuard,
 		},
+
+		// Roles Authorization
 		{
 			provide: APP_GUARD,
 			useClass: RolesGuard,
 		},
+
+		// Global Response Format
 		{
-			provide: APP_GUARD,
-			useClass: ThrottlerGuard,
+			provide: APP_INTERCEPTOR,
+			useClass: ResponseInterceptor,
+		},
+
+		// Global Exception Handler
+		{
+			provide: APP_FILTER,
+			useClass: GlobalExceptionFilter,
 		},
 	],
 })

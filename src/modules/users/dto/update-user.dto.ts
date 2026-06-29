@@ -1,33 +1,16 @@
-import {
-	IsEmail,
-	IsOptional,
-	IsString,
-	MinLength,
-	Matches,
-} from "class-validator";
+import { PartialType } from "@nestjs/mapped-types";
+import { CreateUserDto } from "./create-user.dto";
+import { IsOptional, IsString, MaxLength } from "class-validator";
+import { Transform } from "class-transformer";
 
-export class UpdateUserDto {
+export class UpdateUserDto extends PartialType(CreateUserDto) {
+	@IsOptional()
 	@IsString()
-	@IsOptional()
-	name?: string;
+	@Transform(({ value }) => value?.trim())
+	@MaxLength(500)
+	bio?: string;
 
-	@IsEmail()
 	@IsOptional()
-	email?: string;
-
 	@IsString()
-	@IsOptional()
-	@Matches(/^(?:\+?88)?01[3-9]\d{8}$/, {
-		message: "Invalid Bangladeshi phone number",
-	})
-	phone?: string;
-
-	@IsString()
-	@MinLength(6)
-	@IsOptional()
-	password?: string;
-
-	@IsString()
-	@IsOptional()
 	avatarUrl?: string;
 }

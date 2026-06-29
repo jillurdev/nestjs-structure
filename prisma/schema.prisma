@@ -6,387 +6,809 @@ datasource db {
   provider = "postgresql"
 }
 
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────
 // ENUMS
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────
 
-enum Role {
-  USER
-  ADMIN
-  OWNER
-}
-
-enum SubscriptionType {
-  BASIC
-  PREMIUM
-}
-
-enum AdNetwork {
-  ADMOB
-  UNITY
-  IRONSOURCE
-  APPLOVIN
-  HILLTOPADS
-  ADSTERRA
-  PROPELLERADS
-  CUSTOM
-}
-
-enum AdType {
-  BANNER
-  INTERSTITIAL
-  REWARDED_VIDEO
-  NATIVE
-  POP
-}
-
-enum WithdrawalMethod {
-  BKASH
-  NAGAD
-}
-
-enum WithdrawalStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-enum SubscriptionStatus {
+enum UserStatus {
+  PENDING_VERIFICATION
   ACTIVE
-  EXPIRED
-  CANCELLED
+  SUSPENDED // Temporary hold — admin/compliance review, can be reactivated
+  BLOCKED // AML/fraud flag — restricted but reversible
+  BANNED // Permanent — ToS violation, fraud confirmed, irreversible
+  DEACTIVATED // User-initiated (self-closed account, can request reactivation)
+  CLOSED // Account permanently closed (KYC fail repeatedly, or user requested deletion)
+  DORMANT // No activity for X months — limited access until re-verify
 }
 
-enum TopupMethod {
-  BKASH
-  NAGAD
+enum LoginMethod {
+  PASSWORD
+  GOOGLE
+  APPLE
+  FACEBOOK
 }
 
-enum TopupStatus {
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+  WINDOWS
+  MACOS
+  LINUX
+}
+
+enum KycTier {
+  TIER_0 // Email/phone only — low limits
+  TIER_1 // Gov ID submitted
+  TIER_2 // Liveness check passed
+  TIER_3 // Proof of address — full feature unlock
+}
+
+enum KycStatus {
   PENDING
   APPROVED
   REJECTED
+  REQUIRES_ACTION
 }
 
-enum TransactionType {
-  AD_REWARD
-  WITHDRAWAL
-  REFUND
-  BONUS
-  SUBSCRIPTION_FEE
-  TOPUP
+enum AccountType {
+  MAIN
+  SAVINGS
 }
 
 enum TransactionStatus {
-  COMPLETED
   PENDING
+  COMPLETED
   FAILED
+  REVERSED
+}
+
+enum TransactionType {
+  P2P_TRANSFER // User-to-user
+  EXTERNAL_TRANSFER // To/from external bank
+  SAVINGS_DEPOSIT
+  SAVINGS_WITHDRAWAL
+  PROMISE_PAYMENT
+  BIRTHDAY_GIFT
+  CARD_PAYMENT
+  REFUND
+  CREDIT_DISBURSEMENT
+  CREDIT_REPAYMENT
+}
+
+enum PromiseFrequency {
+  WEEKLY
+  MONTHLY
+  ONE_TIME
+}
+
+enum PromiseStatus {
+  PENDING_ACCEPTANCE
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  MISSED
+}
+
+enum PostVisibility {
+  PUBLIC
+  FRIENDS
+  PRIVATE
 }
 
 enum NotificationType {
-  REWARD
-  WITHDRAWAL_APPROVED
-  WITHDRAWAL_REJECTED
-  SUBSCRIPTION_EXPIRING
+  BIRTHDAY_REMINDER // 7d, 3d, 1d before
+  BIRTHDAY_GIFT_SENT
+  BIRTHDAY_GIFT_RECEIVED
+  PROMISE_CREATED
+  PROMISE_ACCEPTED
+  PROMISE_FULFILLED
+  PROMISE_MISSED
+  PROMISE_REMINDER
+  MONEY_RECEIVED
+  MONEY_SENT
+  MONEY_REQUESTED
+  TAGGED_IN_POST
+  TAGGED_IN_TRANSFER
+  WALL_LIKE
+  WALL_COMMENT
+  KYC_APPROVED
+  KYC_REJECTED
+  CARD_FROZEN
+  LOW_BALANCE
+  BADGE_EARNED
+  STREAK_MILESTONE
   SYSTEM
-  BONUS
 }
 
-// ─────────────────────────────────────────
-// USER
-// ─────────────────────────────────────────
+enum CardStatus {
+  ACTIVE
+  FROZEN
+  BLOCKED
+  EXPIRED
+}
+
+enum CardType {
+  VIRTUAL
+  PHYSICAL
+}
+
+enum CreditStatus {
+  PENDING
+  APPROVED
+  ACTIVE
+  PAID_OFF
+  DEFAULTED
+}
+
+enum BadgeCategory {
+  SAVING
+  SOCIAL
+  FINANCIAL_LITERACY
+  GENEROSITY
+  STREAK
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+enum AmlCheckStatus {
+  CLEAR
+  FLAGGED
+  REVIEW_REQUIRED
+  BLOCKED
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  COMPLIANCE_OFFICER
+  SUPPORT_AGENT
+  FINANCE_MANAGER
+}
+
+model Admin {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  role         AdminRole
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Back-relations — required by Prisma since other models reference Admin
+  kycRecords         KycRecord[]
+  amlChecks          AmlCheck[]
+  creditApplications CreditApplication[]
+  appSettings        AppSetting[]
+  auditLogs          AdminAuditLog[]
+  users              User[]
+
+  @@map("admins")
+}
+
+model AdminAuditLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  admin      Admin    @relation(fields: [adminId], references: [id])
+  action     String // e.g. "KYC_APPROVED", "USER_SUSPENDED", "SETTING_UPDATED"
+  targetType String? // "User" | "Transaction" | "AppSetting"
+  targetId   String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([adminId, createdAt])
+  @@map("admin_audit_logs")
+}
+
+// ─────────────────────────────────────────────
+// USER & IDENTITY
+// ─────────────────────────────────────────────
 
 model User {
-  id           String  @id @default(uuid())
-  name         String
-  email        String? @unique
-  phone        String  @unique
-  passwordHash String
-  role         Role    @default(USER)
-  avatarUrl    String?
+  id                String     @id @default(uuid())
+  handle            String     @unique
+  phone             String     @unique
+  email             String     @unique
+  passwordHash      String
+  dateOfBirth       DateTime
+  fullName          String
+  avatarUrl         String?
+  bio               String?
+  vybeScore         Int        @default(0)
+  kyc_tier          KycTier    @default(TIER_0)
+  status            UserStatus @default(PENDING_VERIFICATION)
+  statusReason      String? // Why suspended/blocked/banned — audit trail
+  statusChangedAt   DateTime?
+  statusChangedById String? // Admin who changed it
+  admin             Admin?     @relation(fields: [statusChangedById], references: [id])
+  isVerified        Boolean    @default(false)
 
-  referralCode String? @unique
-
-  refreshToken   String?
-  // Balance & Earnings
-  balance        Decimal @default(0.00) @db.Decimal(12, 2)
-  totalEarned    Decimal @default(0.00) @db.Decimal(12, 2)
-  totalWithdrawn Decimal @default(0.00) @db.Decimal(12, 2)
-
-  // Subscription
-  subscriptionType SubscriptionType @default(BASIC)
-
-  // Status
-  isActive  Boolean   @default(true)
-  isBanned  Boolean   @default(false)
-  banReason String?
-  bannedAt  DateTime?
-  bannedBy  String? // Admin/Owner id who banned
-
-  // Device
-  fcmToken String? // For push notifications
-  deviceId String?
-
-  // Timestamps
-  lastLoginAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  lastIpAddress String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   // Relations
-  topupRequests TopupRequest[]
-  subscriptions Subscription[]
-  adWatches     AdWatch[]
-  withdrawals   Withdrawal[]
-  transactions  Transaction[]
-  notifications Notification[]
-  referrals     Referral[]     @relation("ReferredBy")
-  referredUsers Referral[]     @relation("ReferredUser")
-  loginHistory  LoginHistory[]
+  accounts              Account[]
+  cards                 Card[]
+  kycRecords            KycRecord[]
+  sentTransactions      Transaction[]       @relation("SenderTransactions")
+  receivedTransactions  Transaction[]       @relation("ReceiverTransactions")
+  sentRequests          PaymentRequest[]    @relation("SentRequests")
+  receivedRequests      PaymentRequest[]    @relation("ReceivedRequests")
+  savingsGoals          SavingsGoal[]
+  promisesAsPromisor    Promise[]           @relation("PromisorPromises")
+  promisesAsPromisee    Promise[]           @relation("PromiseePromises")
+  posts                 Post[]
+  comments              Comment[]
+  likes                 Like[]
+  notificationsReceived Notification[]      @relation("ReceivedNotifications")
+  notificationsSent     Notification[]      @relation("SentNotifications")
+  sentFriendships       Friendship[]        @relation("SentFriendships")
+  receivedFriendships   Friendship[]        @relation("ReceivedFriendships")
+  vybeWishSettings      VybeWishSettings?
+  badges                UserBadge[]
+  streaks               UserStreak[]
+  creditApplications    CreditApplication[]
+  auditLogs             AuditLog[]
+  sessions              Session[]
+  deviceTokens          DeviceToken[]
+  privacySettings       PrivacySettings?
+  amlChecks             AmlCheck[]
 
   @@map("users")
 }
 
-// ─────────────────────────────────────────
-// AUTH / SESSION
-// ─────────────────────────────────────────
+model Session {
+  id String @id @default(uuid())
 
-model LoginHistory {
-  id         String   @id @default(uuid())
-  userId     String
-  ipAddress  String?
-  deviceInfo String?
-  loginAt    DateTime @default(now())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId   String?
+  deviceName String?
+  platform   DevicePlatform?
 
-  @@map("login_history")
-}
+  ipAddress String?
+  userAgent String?
 
-model OtpVerification {
-  id        String   @id @default(uuid())
-  phone     String
-  otp       String
-  purpose   String // 'register', 'forgot_password', 'withdrawal'
-  expiresAt DateTime
-  isUsed    Boolean  @default(false)
+  loginMethod LoginMethod @default(PASSWORD)
+
+  refreshTokenId   String @unique @default(uuid())
+  refreshTokenHash String @db.VarChar(255)
+
+  isTrusted Boolean @default(false)
+
+  expiresAt  DateTime
+  lastUsedAt DateTime?
+
+  revokedAt     DateTime?
+  revokedReason String?
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@map("otp_verifications")
+  @@index([userId])
+  @@index([userId, revokedAt])
 }
 
-// ─────────────────────────────────────────
-// SUBSCRIPTION
-// ─────────────────────────────────────────
+model DeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique // FCM/APNs push token
+  platform  String // ios | android | web
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-model SubscriptionPlan {
-  id            String           @id @default(uuid())
-  name          String // "Basic", "Premium"
-  type          SubscriptionType @unique
-  price         Decimal          @db.Decimal(10, 2)
-  durationDays  Int // 30 for monthly
-  dailyAdLimit  Int
-  rewardPerAd   Decimal          @db.Decimal(10, 4)
-  minWithdrawal Decimal          @db.Decimal(10, 2)
-  features      String[] // List of features as array
-  isActive      Boolean          @default(true)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-
-  subscriptions Subscription[]
-
-  @@map("subscription_plans")
+  @@map("device_tokens")
 }
 
-model Subscription {
-  id          String             @id @default(uuid())
-  userId      String
-  planId      String
-  status      SubscriptionStatus @default(ACTIVE)
-  price       Decimal            @db.Decimal(10, 2)
-  startedAt   DateTime           @default(now())
-  expiresAt   DateTime
-  cancelledAt DateTime?
+// ─────────────────────────────────────────────
+// KYC & COMPLIANCE
+// ─────────────────────────────────────────────
 
-  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+model KycRecord {
+  id                  String    @id @default(uuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id])
+  tier                KycTier
+  status              KycStatus @default(PENDING)
+  providerRef         String?
+  documentType        String?
+  documentImageUrl    String?
+  selfieImageUrl      String?
+  livenessCheckPassed Boolean?
+  proofOfAddressUrl   String?
+  rejectionReason     String?
+  reviewedAt          DateTime?
+  admin               Admin?    @relation(fields: [adminId], references: [id])
+  adminId             String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  @@map("subscriptions")
+  @@map("kyc_records")
 }
 
-// ─────────────────────────────────────────
-// TOPUP REQUEST
-// ─────────────────────────────────────────
-
-model TopupRequest {
-  id            String      @id @default(uuid())
+model AmlCheck {
+  id            String         @id @default(uuid())
   userId        String
-  amount        Decimal     @db.Decimal(10, 2)
-  method        TopupMethod
-  transactionId String
-  senderNumber  String
-  status        TopupStatus @default(PENDING)
-  adminNote     String?
-  processedBy   String?
-  requestedAt   DateTime    @default(now())
-  processedAt   DateTime?
+  user          User           @relation(fields: [userId], references: [id])
+  transactionId String?
+  transaction   Transaction?   @relation(fields: [transactionId], references: [id])
+  status        AmlCheckStatus @default(CLEAR)
+  reason        String?
+  admin         Admin?         @relation(fields: [adminId], references: [id])
+  adminId       String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("topup_requests")
+  @@map("aml_checks")
 }
 
-// ─────────────────────────────────────────
-// ADS
-// ─────────────────────────────────────────
+model TransactionLimit {
+  id            String  @id @default(uuid())
+  kyc_tier      KycTier @unique
+  dailyLimit    Decimal @db.Decimal(18, 2)
+  weeklyLimit   Decimal @db.Decimal(18, 2)
+  monthlyLimit  Decimal @db.Decimal(18, 2)
+  singleTxLimit Decimal @db.Decimal(18, 2)
+  currency      String  @default("USD")
 
-model Ad {
-  id              String    @id @default(uuid())
-  title           String
-  description     String?
-  adNetwork       AdNetwork
-  adType          AdType
-  adUnitId        String? // AdMob unit ID, Unity placement ID etc
-  rewardAmount    Decimal   @db.Decimal(10, 4) // BDT reward per view
-  durationSeconds Int       @default(30) // Minimum watch time
-  isActive        Boolean   @default(true)
-  targetBasic     Boolean   @default(true) // Show to basic users
-  targetPremium   Boolean   @default(true) // Show to premium users
-  priority        Int       @default(1) // Higher = show more
-  createdBy       String // Owner/Admin id
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  adWatches AdWatch[]
-
-  @@map("ads")
+  @@map("transaction_limits")
 }
 
-model AdWatch {
-  id           String    @id @default(uuid())
-  userId       String
-  adId         String
-  rewardEarned Decimal   @db.Decimal(10, 4)
-  adNetwork    AdNetwork
-  watchedAt    DateTime  @default(now())
-  ipAddress    String?
-  deviceId     String?
+// ─────────────────────────────────────────────
+// ACCOUNTS & CARDS
+// ─────────────────────────────────────────────
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  ad   Ad   @relation(fields: [adId], references: [id])
+model Account {
+  id                   String      @id @default(uuid())
+  userId               String
+  user                 User        @relation(fields: [userId], references: [id])
+  virtualAccountNumber String      @unique
+  balance              Decimal     @default(0) @db.Decimal(18, 2)
+  currency             String      @default("USD")
+  accountType          AccountType @default(MAIN)
+  isActive             Boolean     @default(true)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
-  @@map("ad_watches")
+  // Relations
+  sentTransactions     Transaction[] @relation("FromAccount")
+  receivedTransactions Transaction[] @relation("ToAccount")
+  savingsGoal          SavingsGoal? // Only for SAVINGS accounts
+  cards                Card[]
+
+  @@map("accounts")
 }
 
-model DailyAdLimit {
-  id         String   @id @default(uuid())
-  userId     String
-  date       DateTime @db.Date
-  watchCount Int      @default(0)
-  earned     Decimal  @default(0.00) @db.Decimal(10, 4)
+model Card {
+  id             String     @id @default(uuid())
+  userId         String
+  user           User       @relation(fields: [userId], references: [id])
+  accountId      String
+  account        Account    @relation(fields: [accountId], references: [id])
+  cardType       CardType   @default(VIRTUAL)
+  lastFourDigits String
+  expiryMonth    Int
+  expiryYear     Int
+  status         CardStatus @default(ACTIVE)
+  billingAddress String? // JSON string for physical cards
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
-  @@unique([userId, date])
-  @@map("daily_ad_limits")
+  @@map("cards")
 }
 
-// ─────────────────────────────────────────
-// WITHDRAWAL
-// ─────────────────────────────────────────
-
-model Withdrawal {
-  id            String           @id @default(uuid())
-  userId        String
-  amount        Decimal          @db.Decimal(10, 2)
-  method        WithdrawalMethod
-  accountNumber String
-  accountName   String?
-  status        WithdrawalStatus @default(PENDING)
-  adminNote     String? // Rejection reason
-  processedBy   String? // Admin/Owner id
-  requestedAt   DateTime         @default(now())
-  processedAt   DateTime?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("withdrawals")
-}
-
-// ─────────────────────────────────────────
-// TRANSACTIONS (Ledger)
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────
+// TRANSACTIONS & PAYMENT REQUESTS
+// ─────────────────────────────────────────────
 
 model Transaction {
   id            String            @id @default(uuid())
-  userId        String
+  fromAccountId String
+  fromAccount   Account           @relation("FromAccount", fields: [fromAccountId], references: [id])
+  toAccountId   String
+  toAccount     Account           @relation("ToAccount", fields: [toAccountId], references: [id])
+  senderId      String
+  sender        User              @relation("SenderTransactions", fields: [senderId], references: [id])
+  receiverId    String
+  receiver      User              @relation("ReceiverTransactions", fields: [receiverId], references: [id])
+  amount        Decimal           @db.Decimal(18, 2)
+  currency      String            @default("USD")
+  status        TransactionStatus @default(PENDING)
   type          TransactionType
-  status        TransactionStatus @default(COMPLETED)
-  amount        Decimal           @db.Decimal(10, 2)
-  balanceBefore Decimal           @db.Decimal(10, 2)
-  balanceAfter  Decimal           @db.Decimal(10, 2)
-  description   String?
-  referenceId   String? // adWatchId or withdrawalId
+  note          String? // User-written message/emoji
+  reference     String            @unique // Internal idempotency key
+  externalRef   String? // BaaS provider reference (Unit/Synctera)
+  postToWall    Boolean           @default(false)
+  hideAmount    Boolean           @default(false) // Privacy — show activity but hide amount
+  promiseId     String? // If this tx fulfils a VybePromise
+  promise       Promise?          @relation(fields: [promiseId], references: [id])
+  socialPostId  String?           @unique
+  socialPost    Post?             @relation(fields: [socialPostId], references: [id])
   createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Relations
+  amlChecks AmlCheck[]
+  auditLogs AuditLog[]
 
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([createdAt])
   @@map("transactions")
 }
 
-// ─────────────────────────────────────────
-// REFERRAL SYSTEM
-// ─────────────────────────────────────────
+model PaymentRequest {
+  id          String            @id @default(uuid())
+  requesterId String
+  requester   User              @relation("SentRequests", fields: [requesterId], references: [id])
+  targetId    String
+  target      User              @relation("ReceivedRequests", fields: [targetId], references: [id])
+  amount      Decimal           @db.Decimal(18, 2)
+  currency    String            @default("USD")
+  note        String?
+  status      TransactionStatus @default(PENDING)
+  linkToken   String            @unique // Shareable payment link token
+  expiresAt   DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
-model Referral {
-  id             String   @id @default(uuid())
-  referredById   String
-  referredUserId String   @unique
-  bonusAmount    Decimal  @default(0.00) @db.Decimal(10, 2)
-  isPaid         Boolean  @default(false)
-  createdAt      DateTime @default(now())
-
-  referredBy   User @relation("ReferredBy", fields: [referredById], references: [id])
-  referredUser User @relation("ReferredUser", fields: [referredUserId], references: [id])
-
-  @@map("referrals")
+  @@map("payment_requests")
 }
 
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────
+// SAVINGS GOALS
+// ─────────────────────────────────────────────
+
+model SavingsGoal {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  accountId     String    @unique
+  account       Account   @relation(fields: [accountId], references: [id])
+  title         String // e.g., "New iPhone", "Holiday Trip"
+  targetAmount  Decimal   @db.Decimal(18, 2)
+  currentAmount Decimal   @default(0) @db.Decimal(18, 2)
+  currency      String    @default("USD")
+  emoji         String? // Fun visual for Gen Z UX
+  coverImageUrl String?
+  isPublic      Boolean   @default(false) // Social sharing
+  isGroupGoal   Boolean   @default(false)
+  targetDate    DateTime?
+  isCompleted   Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  groupMembers SavingsGoalMember[]
+
+  @@map("savings_goals")
+}
+
+model SavingsGoalMember {
+  id            String      @id @default(uuid())
+  savingsGoalId String
+  savingsGoal   SavingsGoal @relation(fields: [savingsGoalId], references: [id])
+  userId        String
+  contribution  Decimal     @default(0) @db.Decimal(18, 2)
+  joinedAt      DateTime    @default(now())
+
+  @@unique([savingsGoalId, userId])
+  @@map("savings_goal_members")
+}
+
+// ─────────────────────────────────────────────
+// VYBEWISH — BIRTHDAY ENGINE
+// ─────────────────────────────────────────────
+
+model VybeWishSettings {
+  id                       String  @id @default(uuid())
+  userId                   String  @unique
+  user                     User    @relation(fields: [userId], references: [id])
+  isOptedIn                Boolean @default(true) // Receive birthday notifications from contacts
+  showOnWall               Boolean @default(true) // Post birthday gift activity to Wall
+  notifyContactsDaysBefore Int[]   @default([7, 3, 1]) // Days-before reminder schedule
+
+  @@map("vybe_wish_settings")
+}
+
+model BirthdayNotificationJob {
+  id             String    @id @default(uuid())
+  birthdayUserId String // Whose birthday it is
+  notifyUserId   String // Who to notify
+  scheduledFor   DateTime // When to send the push notification
+  daysBefore     Int // 7, 3, or 1
+  isSent         Boolean   @default(false)
+  sentAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([birthdayUserId, notifyUserId, daysBefore])
+  @@index([scheduledFor, isSent])
+  @@map("birthday_notification_jobs")
+}
+
+// ─────────────────────────────────────────────
+// VYBEPROMISE — STANDING ORDERS & COMMITMENTS
+// ─────────────────────────────────────────────
+
+model Promise {
+  id                String           @id @default(uuid())
+  promisorUserId    String
+  promisor          User             @relation("PromisorPromises", fields: [promisorUserId], references: [id])
+  promiseeUserId    String
+  promisee          User             @relation("PromiseePromises", fields: [promiseeUserId], references: [id])
+  title             String? // e.g., "Monthly Allowance"
+  totalAmount       Decimal          @db.Decimal(18, 2)
+  installmentAmount Decimal          @db.Decimal(18, 2)
+  currency          String           @default("USD")
+  frequency         PromiseFrequency
+  totalInstallments Int // e.g., 12 for 12 months
+  fulfilledCount    Int              @default(0)
+  status            PromiseStatus    @default(PENDING_ACCEPTANCE)
+  nextDueDate       DateTime?
+  startDate         DateTime?
+  endDate           DateTime?
+  note              String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  installments PromiseInstallment[]
+  transactions Transaction[]
+
+  @@map("promises")
+}
+
+model PromiseInstallment {
+  id            String        @id @default(uuid())
+  promiseId     String
+  promise       Promise       @relation(fields: [promiseId], references: [id])
+  installmentNo Int // 1, 2, 3... up to totalInstallments
+  dueDate       DateTime
+  paidAt        DateTime?
+  status        PromiseStatus @default(PENDING_ACCEPTANCE)
+  transactionId String? // Linked tx once fulfilled
+  createdAt     DateTime      @default(now())
+
+  @@unique([promiseId, installmentNo])
+  @@map("promise_installments")
+}
+
+// ─────────────────────────────────────────────
+// SOCIAL — WALL, POSTS, TAGS, LIKES, COMMENTS
+// ─────────────────────────────────────────────
+
+model Post {
+  id            String         @id @default(uuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id])
+  content       String?
+  mediaUrls     String[] // Images/stickers attached to post
+  visibility    PostVisibility @default(FRIENDS)
+  isPinned      Boolean        @default(false)
+  isSystemPost  Boolean        @default(false) // Auto-generated (e.g., birthday gift celebration)
+  transactionId String?        @unique // Linked transaction (if financial post)
+  transaction   Transaction?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  likes    Like[]
+  comments Comment[]
+  tags     PostTag[]
+
+  @@index([userId, createdAt])
+  @@map("posts")
+}
+
+model PostTag {
+  id           String   @id @default(uuid())
+  postId       String
+  post         Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  taggedUserId String // The @mentioned user
+  createdAt    DateTime @default(now())
+
+  @@unique([postId, taggedUserId])
+  @@map("post_tags")
+}
+
+model Like {
+  id        String   @id @default(uuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@map("likes")
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("comments")
+}
+
+// ─────────────────────────────────────────────
+// FRIENDSHIPS / SOCIAL GRAPH
+// ─────────────────────────────────────────────
+
+model Friendship {
+  id         String           @id @default(uuid())
+  senderId   String
+  sender     User             @relation("SentFriendships", fields: [senderId], references: [id])
+  receiverId String
+  receiver   User             @relation("ReceivedFriendships", fields: [receiverId], references: [id])
+  status     FriendshipStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@unique([senderId, receiverId])
+  @@map("friendships")
+}
+
+// ─────────────────────────────────────────────
 // NOTIFICATIONS
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────
 
 model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  type      NotificationType
-  title     String
-  body      String
-  isRead    Boolean          @default(false)
-  data      Json? // Extra data (withdrawal id etc)
-  createdAt DateTime         @default(now())
+  id         String           @id @default(uuid())
+  receiverId String
+  receiver   User             @relation("ReceivedNotifications", fields: [receiverId], references: [id])
+  senderId   String?
+  sender     User?            @relation("SentNotifications", fields: [senderId], references: [id])
+  type       NotificationType
+  title      String // e.g., "@alex just sent you birthday vibes + $20!"
+  body       String?
+  metadata   Json? // Extra context: transactionId, postId, promiseId etc.
+  isRead     Boolean          @default(false)
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  @@index([receiverId, isRead, createdAt])
   @@map("notifications")
 }
 
-// ─────────────────────────────────────────
-// BLOG (For AdSense)
-// ─────────────────────────────────────────
+// ─────────────────────────────────────────────
+// CREDIT PRODUCTS
+// ─────────────────────────────────────────────
+model CreditApplication {
+  id                   String       @id @default(uuid())
+  userId               String
+  user                 User         @relation(fields: [userId], references: [id])
+  requestedAmount      Decimal      @db.Decimal(18, 2)
+  currency             String       @default("USD")
+  creditType           String
+  status               CreditStatus @default(PENDING)
+  approvedAmount       Decimal?     @db.Decimal(18, 2)
+  interestRate         Decimal?     @db.Decimal(5, 4)
+  repaymentPeriodDays  Int?
+  alternativeScoreData Json?
+  consentGiven         Boolean      @default(false)
+  admin                Admin?       @relation(fields: [adminId], references: [id])
+  adminId              String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
-model BlogPost {
-  id          String    @id @default(uuid())
-  title       String
-  content     String    @db.Text
-  excerpt     String?
-  slug        String    @unique
-  coverImage  String?
-  tags        String[]
-  isPublished Boolean   @default(false)
-  publishedAt DateTime?
-  createdBy   String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  credit Credit?
 
-  @@map("blog_posts")
+  @@map("credit_applications")
+}
+
+model Credit {
+  id                 String            @id @default(uuid())
+  applicationId      String            @unique
+  application        CreditApplication @relation(fields: [applicationId], references: [id])
+  principalAmount    Decimal           @db.Decimal(18, 2)
+  outstandingBalance Decimal           @db.Decimal(18, 2)
+  interestRate       Decimal           @db.Decimal(5, 4)
+  status             CreditStatus      @default(ACTIVE)
+  disbursedAt        DateTime?
+  dueDate            DateTime?
+  paidOffAt          DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@map("credits")
+}
+
+// ─────────────────────────────────────────────
+// GAMIFICATION — BADGES & STREAKS
+// ─────────────────────────────────────────────
+
+model Badge {
+  id          String        @id @default(uuid())
+  name        String        @unique // e.g., "Savings Streak 7 Days"
+  description String
+  iconUrl     String
+  category    BadgeCategory
+  condition   Json // Rule definition for automatic awarding
+
+  userBadges UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id       String   @id @default(uuid())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+  badgeId  String
+  badge    Badge    @relation(fields: [badgeId], references: [id])
+  earnedAt DateTime @default(now())
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+model UserStreak {
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  streakType     String // SAVING | SOCIAL | FINANCIAL_LITERACY
+  currentCount   Int       @default(0)
+  longestCount   Int       @default(0)
+  lastActivityAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([userId, streakType])
+  @@map("user_streaks")
+}
+
+// ─────────────────────────────────────────────
+// PRIVACY SETTINGS
+// ─────────────────────────────────────────────
+
+model PrivacySettings {
+  id                     String         @id @default(uuid())
+  userId                 String         @unique
+  user                   User           @relation(fields: [userId], references: [id])
+  defaultPostVisibility  PostVisibility @default(FRIENDS)
+  showTransactionsOnWall Boolean        @default(true)
+  showAmountsOnWall      Boolean        @default(false) // Hide $ amounts in social posts
+  allowTagging           Boolean        @default(true)
+  allowFriendRequests    Boolean        @default(true)
+  showBirthdayToFriends  Boolean        @default(true)
+  showVybeScore          Boolean        @default(true)
+  updatedAt              DateTime       @updatedAt
+
+  @@map("privacy_settings")
+}
+
+// ─────────────────────────────────────────────
+// AUDIT & COMPLIANCE LOGGING
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id            String       @id @default(uuid())
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id])
+  transactionId String?
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  action        String // e.g., "TRANSFER_INITIATED", "KYC_SUBMITTED", "CARD_FROZEN"
+  ipAddress     String?
+  userAgent     String?
+  metadata      Json? // Any extra audit context
+  createdAt     DateTime     @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
 
 // ─────────────────────────────────────────
@@ -398,57 +820,35 @@ model AppSetting {
   key         String   @unique
   value       String
   description String?
-  updatedBy   String? // Owner id
+  admin       Admin?   @relation(fields: [adminId], references: [id])
+  adminId     String?
   updatedAt   DateTime @updatedAt
 
   @@map("app_settings")
 }
-
-// Default settings keys:
-// reward_per_ad_basic      → "0.50"
-// reward_per_ad_premium    → "1.00"
-// daily_limit_basic        → "5"
-// daily_limit_premium      → "50"
-// min_withdrawal_basic     → "100"
-// min_withdrawal_premium   → "50"
-// referral_bonus           → "10"
-// maintenance_mode         → "false"
-// app_version              → "1.0.0"
-// force_update             → "false"
 
 // ─────────────────────────────────────────
 // REVENUE TRACKING (Owner dashboard)
 // ─────────────────────────────────────────
 
 model RevenueRecord {
-  id             String   @id @default(uuid())
-  date           DateTime @unique @db.Date
-  admobRevenue   Decimal  @default(0.00) @db.Decimal(12, 2)
-  adsenseRevenue Decimal  @default(0.00) @db.Decimal(12, 2)
-  unityRevenue   Decimal  @default(0.00) @db.Decimal(12, 2)
-  otherRevenue   Decimal  @default(0.00) @db.Decimal(12, 2)
-  totalRevenue   Decimal  @default(0.00) @db.Decimal(12, 2)
-  totalPaidOut   Decimal  @default(0.00) @db.Decimal(12, 2)
-  profit         Decimal  @default(0.00) @db.Decimal(12, 2)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id   String   @id @default(uuid())
+  date DateTime @unique @db.Date
+
+  transactionFeeRevenue  Decimal @default(0.00) @db.Decimal(14, 2) // P2P/external transfer fees
+  cardInterchangeRevenue Decimal @default(0.00) @db.Decimal(14, 2) // Card swipe/interchange fees
+  interestRevenue        Decimal @default(0.00) @db.Decimal(14, 2) // Interest earned from Credit/loans
+  lateFeeRevenue         Decimal @default(0.00) @db.Decimal(14, 2) // Missed promise/loan late fees
+  subscriptionRevenue    Decimal @default(0.00) @db.Decimal(14, 2) // Premium tier subscriptions
+  otherRevenue           Decimal @default(0.00) @db.Decimal(14, 2)
+
+  totalRevenue Decimal @default(0.00) @db.Decimal(14, 2)
+  totalPayouts Decimal @default(0.00) @db.Decimal(14, 2) // Referral bonuses, promotions, refunds paid out
+  netProfit    Decimal @default(0.00) @db.Decimal(14, 2)
+
+  currency  String   @default("USD")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("revenue_records")
-}
-
-// ─────────────────────────────────────────
-// BONUS / PROMO SYSTEM
-// ─────────────────────────────────────────
-
-model Bonus {
-  id        String    @id @default(uuid())
-  userId    String
-  amount    Decimal   @db.Decimal(10, 2)
-  reason    String // "welcome_bonus", "referral", "promo" etc
-  isApplied Boolean   @default(false)
-  appliedAt DateTime?
-  createdBy String // Owner/Admin id
-  createdAt DateTime  @default(now())
-
-  @@map("bonuses")
 }

@@ -1,61 +1,93 @@
-import { Controller, Post, Get, Body, Req, Res } from "@nestjs/common";
-import { LoginDto } from "./dto/login.dto";
-import { AuthService } from "./auth.service";
+import { Body, Controller, Get, Patch, Post, Req, Res } from "@nestjs/common";
 import { Request, Response } from "express";
-import httpStatus from "http-status";
-import { responseHandler } from "@/common/helpers";
-import { Public } from "@/common/decorators/public.decorator";
-import { AppMessages } from "@/common/AppMessages/app.messages";
 import { Throttle } from "@nestjs/throttler";
+
+import { AuthService } from "./auth.service";
+
+import { Public } from "@/common/decorators/public.decorator";
+import { CurrentUser } from "@/common/decorators/current-user.decorator";
+
+import { RegisterDto } from "./dto/register.dto";
+import { LoginDto } from "./dto/login.dto";
+import { ChangePasswordDto } from "../users/dto/change-password.dto";
+import { JwtUser } from "@/common/interfaces/jwt-user.interface";
 
 @Controller("auth")
 export class AuthController {
-	constructor (private readonly authService: AuthService) { }
-	
-	@Throttle({ short: { limit: 3, ttl: 60000 } })
+	constructor(private readonly authService: AuthService) {}
+
+	// Register
 	@Public()
-	@Post("login")
-	async login(@Body() dto: LoginDto, @Res() res: Response) {
-		const data = await this.authService.login(dto, res);
-		responseHandler(res, {
-			statusCode: httpStatus.OK,
-			success: true,
-			message: AppMessages.auth.loginSuccess,
-			data,
-		});
+	@Post("register")
+	async register(
+		@Body() dto: RegisterDto,
+		@Req() req: Request,
+		@Res({ passthrough: true }) res: Response,
+	) {
+		return this.authService.register(dto, req, res);
 	}
+
+	// Login
+
+	@Public()
+	@Throttle({
+		login: {
+			limit: 5,
+			ttl: 60,
+		},
+	})
+	@Post("login")
+	async login(
+		@Body() dto: LoginDto,
+		@Req() req: Request,
+		@Res({ passthrough: true }) res: Response,
+	) {
+		return this.authService.login(dto, req, res);
+	}
+
+	// Refresh Access Token
 
 	@Public()
 	@Post("refresh")
-	async refresh(@Req() req: Request, @Res() res: Response) {
-		const token = req.cookies?.refreshToken;
-		const data = await this.authService.refreshToken(token, res);
-		responseHandler(res, {
-			statusCode: httpStatus.OK,
-			success: true,
-			message: AppMessages.auth.tokenRefreshed,
-			data,
-		});
+	async refreshToken(
+		@Req() req: Request,
+		@Res({ passthrough: true }) res: Response,
+	) {
+		return this.authService.refreshToken(req, res);
 	}
+
+	// Current User
 
 	@Get("me")
-	async getMe(@Req() req: any, @Res() res: Response) {
-		responseHandler(res, {
-			statusCode: httpStatus.OK,
-			success: true,
-			message: AppMessages.user.retrieved,
-			data: req.user,
-		});
+	async me(@CurrentUser() user: JwtUser) {
+		return this.authService.me(user.id);
 	}
 
+	// Logout Current Device
+
 	@Post("logout")
-	async logout(@Req() req: any, @Res() res: Response) {
-		const data = await this.authService.logout(req.user.id, res);
-		responseHandler(res, {
-			statusCode: httpStatus.OK,
-			success: true,
-			message: AppMessages.auth.logoutSuccess,
-			data,
-		});
+	async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+		return this.authService.logout(req, res);
+	}
+
+	// Logout All Devices
+
+	@Post("logout-all")
+	async logoutAllDevices(
+		@CurrentUser() user: JwtUser,
+		@Res({ passthrough: true }) res: Response,
+	) {
+		return this.authService.logoutAllDevices(user.id, res);
+	}
+
+	// Change Password
+
+	@Patch("change-password")
+	async changePassword(
+		@CurrentUser() user: JwtUser,
+		@Body() dto: ChangePasswordDto,
+		@Res({ passthrough: true }) res: Response,
+	) {
+		return this.authService.changePassword(user.id, dto, res);
 	}
 }

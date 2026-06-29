@@ -1,4 +1,5 @@
 import * as dotenv from "dotenv";
+
 dotenv.config();
 
 const e = process.env;
@@ -6,12 +7,15 @@ const e = process.env;
 export const configs = {
 	// ─── App ─────────────────────────────────
 	app: {
-		name: e.APP_NAME || "TakaNibo",
+		name: e.APP_NAME || "VyybeBank",
 		env: e.NODE_ENV || "development",
-		port: parseInt(e.PORT || "5000", 10),
-		url: e.APP_URL || "http://localhost:5000",
+		port: Number(e.PORT || 8080),
+		url: e.APP_URL || "http://localhost:8080",
 		frontendUrl: e.FRONTEND_URL || "http://localhost:3000",
-		allowedOrigins: (e.ALLOWED_ORIGINS || "http://localhost:3000").split(","),
+		allowedOrigins: (e.ALLOWED_ORIGINS || "http://localhost:3000")
+			.split(",")
+			.map(origin => origin.trim())
+			.filter(Boolean),
 		isProduction: e.NODE_ENV === "production",
 		isDevelopment: e.NODE_ENV === "development",
 	},
@@ -29,17 +33,23 @@ export const configs = {
 		refreshExpiresIn: e.JWT_REFRESH_EXPIRES_IN || "30d",
 	},
 
-	// ─── OTP ─────────────────────────────────
-	otp: {
-		expiresMinutes: parseInt(e.OTP_EXPIRES_MINUTES || "5", 10),
-		length: parseInt(e.OTP_LENGTH || "6", 10),
+	// resend
+	mail: {
+		resendApiKey: e.RESEND_API_KEY as string,
+		from: e.MAIL_FROM || "noreply@yourdomain.com",
 	},
 
-	// ─── SMS ─────────────────────────────────
+	// ─── OTP ─────────────────────────────────
+	otp: {
+		expiresMinutes: Number(e.OTP_EXPIRES_MINUTES || 5),
+		length: Number(e.OTP_LENGTH || 6),
+	},
+
+	// ─── SMS Gateway ─────────────────────────
 	sms: {
 		gatewayUrl: e.SMS_GATEWAY_URL || "",
 		apiKey: e.SMS_GATEWAY_API_KEY || "",
-		senderId: e.SMS_SENDER_ID || "TakaNibo",
+		senderId: e.SMS_SENDER_ID || "VyybeBank",
 	},
 
 	// ─── Firebase ────────────────────────────
@@ -56,27 +66,10 @@ export const configs = {
 		apiSecret: e.CLOUDINARY_API_SECRET || "",
 	},
 
-	// ─── Reward ──────────────────────────────
-	reward: {
-		perAdBasic: parseFloat(e.REWARD_PER_AD_BASIC || "0.5"),
-		perAdPremium: parseFloat(e.REWARD_PER_AD_PREMIUM || "1.0"),
-		dailyLimitBasic: parseInt(e.DAILY_LIMIT_BASIC || "5", 10),
-		dailyLimitPremium: parseInt(e.DAILY_LIMIT_PREMIUM || "50", 10),
-		minWithdrawalBasic: parseFloat(e.MIN_WITHDRAWAL_BASIC || "100"),
-		minWithdrawalPremium: parseFloat(e.MIN_WITHDRAWAL_PREMIUM || "50"),
-		referralBonus: parseFloat(e.REFERRAL_BONUS || "10"),
-	},
-
-	// ─── Subscription ────────────────────────
-	subscription: {
-		premiumPrice: parseFloat(e.PREMIUM_PRICE || "99"),
-		premiumDurationDays: parseInt(e.PREMIUM_DURATION_DAYS || "30", 10),
-	},
-
 	// ─── Rate Limiting ───────────────────────
 	throttle: {
-		ttl: parseInt(e.THROTTLE_TTL || "60", 10),
-		limit: parseInt(e.THROTTLE_LIMIT || "30", 10),
+		ttl: Number(e.THROTTLE_TTL || 60),
+		limit: Number(e.THROTTLE_LIMIT || 30),
 	},
 
 	// ─── Owner Seed ──────────────────────────
