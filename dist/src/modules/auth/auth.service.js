@@ -47,46 +47,98 @@ const common_1 = require("@nestjs/common");
 const jwt_1 = require("@nestjs/jwt");
 const bcrypt = __importStar(require("bcrypt"));
 const prisma_service_1 = require("../../database/prisma/prisma.service");
+const config_1 = require("../../config");
+const app_messages_1 = require("../../common/AppMessages/app.messages");
 let AuthService = class AuthService {
     constructor(prisma, jwt) {
         this.prisma = prisma;
         this.jwt = jwt;
     }
     async login(dto, res) {
-        const user = await this.prisma.user.findUnique({
-            where: { email: dto.email },
-        });
+        const user = await this.prisma.findUserByPhone(dto.phone);
         if (!user)
-            throw new common_1.UnauthorizedException('Invalid credentials');
-        const passwordMatch = await bcrypt.compare(dto.password, user.password);
+            throw new common_1.UnauthorizedException(app_messages_1.AppMessages.auth.invalidCredentials);
+        const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
         if (!passwordMatch)
-            throw new common_1.UnauthorizedException('Invalid credentials');
-        if (user.status === 'PENDING')
-            throw new common_1.UnauthorizedException('Please verify your email first');
-        if (user.status === 'SUSPENDED' || user.status === 'BANNED')
-            throw new common_1.UnauthorizedException('Your account has been suspended');
-        const token = this.jwt.sign({
-            sub: user.id,
-            email: user.email,
-            role: user.role,
+            throw new common_1.UnauthorizedException(app_messages_1.AppMessages.auth.invalidCredentials);
+        if (!user.isActive)
+            throw new common_1.ForbiddenException(app_messages_1.AppMessages.auth.accountDeactivated);
+        if (user.isBanned)
+            throw new common_1.ForbiddenException(app_messages_1.AppMessages.auth.accountBanned(user.banReason ?? ""));
+        const payload = { sub: user.id, phone: user.phone, role: user.role };
+        const accessToken = this.jwt.sign(payload, {
+            secret: config_1.configs.jwt.secret,
+            expiresIn: config_1.configs.jwt.expiresIn,
         });
-        res.cookie('token', token, {
+        const refreshToken = this.jwt.sign(payload, {
+            secret: config_1.configs.jwt.refreshSecret,
+            expiresIn: config_1.configs.jwt.refreshExpiresIn,
+        });
+        await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+                refreshToken,
+                lastLoginAt: new Date(),
+                ...(dto.deviceId && { deviceId: dto.deviceId }),
+            },
+        });
+        res.cookie("accessToken", accessToken, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
+            secure: config_1.configs.app.isProduction,
+            sameSite: "lax",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: config_1.configs.app.isProduction,
+            sameSite: "lax",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
         return {
-            token,
+            accessToken,
             user: {
                 id: user.id,
                 name: user.name,
                 email: user.email,
+                phone: user.phone,
                 role: user.role,
-                status: user.status,
-                avatar: user.avatar,
+                referralCode: user.referralCode,
+                subscriptionType: user.subscriptionType,
+                balance: user.balance,
+                totalEarned: user.totalEarned,
+                avatarUrl: user.avatarUrl,
             },
         };
+    }
+    async logout(userId, res) {
+        await this.prisma.user.update({
+            where: { id: userId },
+            data: { refreshToken: null },
+        });
+        res.clearCookie("accessToken");
+        res.clearCookie("refreshToken");
+        return { message: app_messages_1.AppMessages.auth.logoutSuccess };
+    }
+    async refreshToken(token, res) {
+        const user = await this.prisma.user.findFirst({
+            where: { refreshToken: token },
+        });
+        if (!user || !user.refreshToken)
+            throw new common_1.UnauthorizedException(app_messages_1.AppMessages.auth.tokenInvalid);
+        if (!user.isActive || user.isBanned)
+            throw new common_1.ForbiddenException(app_messages_1.AppMessages.auth.accountDeactivated);
+        const payload = { sub: user.id, role: user.role };
+        const newAccessToken = this.jwt.sign(payload, {
+            secret: config_1.configs.jwt.secret,
+            expiresIn: config_1.configs.jwt.expiresIn,
+        });
+        res.cookie("accessToken", newAccessToken, {
+            httpOnly: true,
+            secure: config_1.configs.app.isProduction,
+            sameSite: "lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+        return { accessToken: newAccessToken };
     }
 };
 exports.AuthService = AuthService;

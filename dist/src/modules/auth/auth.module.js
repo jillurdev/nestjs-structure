@@ -10,27 +10,22 @@ exports.AuthModule = void 0;
 const common_1 = require("@nestjs/common");
 const jwt_1 = require("@nestjs/jwt");
 const passport_1 = require("@nestjs/passport");
-const config_1 = require("@nestjs/config");
 const auth_service_1 = require("./auth.service");
 const auth_controller_1 = require("./auth.controller");
-const prisma_module_1 = require("../../database/prisma/prisma.module");
 const jwt_strategy_1 = require("./strategies/jwt.strategy");
+const config_1 = require("../../config");
 let AuthModule = class AuthModule {
 };
 exports.AuthModule = AuthModule;
 exports.AuthModule = AuthModule = __decorate([
     (0, common_1.Module)({
         imports: [
-            prisma_module_1.PrismaModule,
             passport_1.PassportModule,
-            jwt_1.JwtModule.registerAsync({
-                inject: [config_1.ConfigService],
-                useFactory: (config) => ({
-                    secret: config.get('jwt.secret'),
-                    signOptions: {
-                        expiresIn: config.get('jwt.expiresIn') ?? '7d',
-                    },
-                }),
+            jwt_1.JwtModule.register({
+                secret: config_1.configs.jwt.secret,
+                signOptions: {
+                    expiresIn: config_1.configs.jwt.expiresIn,
+                },
             }),
         ],
         controllers: [auth_controller_1.AuthController],

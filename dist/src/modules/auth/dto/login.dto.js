@@ -15,12 +15,20 @@ class LoginDto {
 }
 exports.LoginDto = LoginDto;
 __decorate([
-    (0, class_validator_1.IsEmail)(),
+    (0, class_validator_1.IsString)({ message: "ফোন নম্বর অবশ্যই টেক্সট হতে হবে" }),
+    (0, class_validator_1.Matches)(/^(?:\+?88)?01[3-9]\d{8}$/, {
+        message: "সঠিক বাংলাদেশি ফোন নম্বর দিন",
+    }),
     __metadata("design:type", String)
-], LoginDto.prototype, "email", void 0);
+], LoginDto.prototype, "phone", void 0);
 __decorate([
-    (0, class_validator_1.IsString)(),
-    (0, class_validator_1.MinLength)(6),
+    (0, class_validator_1.IsString)({ message: "পাসওয়ার্ড অবশ্যই টেক্সট হতে হবে" }),
+    (0, class_validator_1.MinLength)(6, { message: "পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে" }),
     __metadata("design:type", String)
 ], LoginDto.prototype, "password", void 0);
+__decorate([
+    (0, class_validator_1.IsString)({ message: "ডিভাইস আইডি অবশ্যই টেক্সট হতে হবে" }),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], LoginDto.prototype, "deviceId", void 0);
 //# sourceMappingURL=login.dto.js.map

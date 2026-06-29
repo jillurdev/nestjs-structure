@@ -6,308 +6,449 @@ datasource db {
   provider = "postgresql"
 }
 
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
 enum Role {
   USER
   ADMIN
   OWNER
 }
 
-enum UserStatus {
+enum SubscriptionType {
+  BASIC
+  PREMIUM
+}
+
+enum AdNetwork {
+  ADMOB
+  UNITY
+  IRONSOURCE
+  APPLOVIN
+  HILLTOPADS
+  ADSTERRA
+  PROPELLERADS
+  CUSTOM
+}
+
+enum AdType {
+  BANNER
+  INTERSTITIAL
+  REWARDED_VIDEO
+  NATIVE
+  POP
+}
+
+enum WithdrawalMethod {
+  BKASH
+  NAGAD
+}
+
+enum WithdrawalStatus {
   PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SubscriptionStatus {
   ACTIVE
-  SUSPENDED
-  BANNED
+  EXPIRED
+  CANCELLED
 }
 
-enum PaymentStatus {
+enum TopupMethod {
+  BKASH
+  NAGAD
+}
+
+enum TopupStatus {
   PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TransactionType {
+  AD_REWARD
+  WITHDRAWAL
+  REFUND
+  BONUS
+  SUBSCRIPTION_FEE
+  TOPUP
+}
+
+enum TransactionStatus {
   COMPLETED
+  PENDING
   FAILED
-  REFUNDED
 }
 
-enum RecipientType {
-  ALL
-  CUSTOMERS
-  NON_CUSTOMERS
-  SPECIFIC_CATEGORY
-}
-
-enum NotifType {
-  NEW_PRODUCT
-  CATEGORY_UPDATE
-  PURCHASE_SUCCESS
-  REVIEW_APPROVED
+enum NotificationType {
+  REWARD
+  WITHDRAWAL_APPROVED
+  WITHDRAWAL_REJECTED
+  SUBSCRIPTION_EXPIRING
   SYSTEM
-  PRICE_DROP
-  ACCOUNT
+  BONUS
 }
 
-enum LogAction {
-  CREATE
-  UPDATE
-  DELETE
-  PUBLISH
-  UNPUBLISH
-  LOGIN
-  LOGOUT
-  EMAIL_SENT
-  PURCHASE
-  DOWNLOAD
-  ROLE_CHANGE
-  SETTING_CHANGE
-}
-
-enum PaymentGateway {
-  LEMONSQUEEZY
-  SSLCOMMERZ
-}
-
-enum Currency {
-  USD
-  BDT
-}
+// ─────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────
 
 model User {
-  id       String     @id @default(cuid())
-  name     String
-  email    String     @unique
-  phone    String   @unique
-  password String
-  role     Role       @default(USER)
-  status   UserStatus @default(PENDING)
-  avatar   String?
+  id           String  @id @default(uuid())
+  name         String
+  email        String? @unique
+  phone        String  @unique
+  passwordHash String
+  role         Role    @default(USER)
+  avatarUrl    String?
 
-  emailVerifyToken  String?   @unique
-  emailVerifyExpiry DateTime?
+  referralCode String? @unique
 
-  resetToken       String?   @unique
-  resetTokenExpiry DateTime?
+  refreshToken   String?
+  // Balance & Earnings
+  balance        Decimal @default(0.00) @db.Decimal(12, 2)
+  totalEarned    Decimal @default(0.00) @db.Decimal(12, 2)
+  totalWithdrawn Decimal @default(0.00) @db.Decimal(12, 2)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // Subscription
+  subscriptionType SubscriptionType @default(BASIC)
 
-  uploads         Product[]      @relation("UploadedBy")
-  purchases       Purchase[]
-  downloads       DownloadLog[]
-  saved           SavedItem[]
-  reviews         Review[]
-  notifications   Notification[]
-  siteLogs        SiteLog[]      @relation("LogActor")
-  emailsSent      EmailLog[]
-  settingsUpdated SiteSetting[]  @relation("SettingUpdatedBy")
+  // Status
+  isActive  Boolean   @default(true)
+  isBanned  Boolean   @default(false)
+  banReason String?
+  bannedAt  DateTime?
+  bannedBy  String? // Admin/Owner id who banned
+
+  // Device
+  fcmToken String? // For push notifications
+  deviceId String?
+
+  // Timestamps
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  topupRequests TopupRequest[]
+  subscriptions Subscription[]
+  adWatches     AdWatch[]
+  withdrawals   Withdrawal[]
+  transactions  Transaction[]
+  notifications Notification[]
+  referrals     Referral[]     @relation("ReferredBy")
+  referredUsers Referral[]     @relation("ReferredUser")
+  loginHistory  LoginHistory[]
 
   @@map("users")
 }
 
-model Category {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  slug        String   @unique
-  description String?
-  icon        String?
-  coverImage  String?
-  isActive    Boolean  @default(true)
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+// ─────────────────────────────────────────
+// AUTH / SESSION
+// ─────────────────────────────────────────
 
-  products Product[]
-
-  @@map("categories")
-}
-
-model Tag {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  slug      String   @unique
-  createdAt DateTime @default(now())
-
-  products ProductTag[]
-
-  @@map("tags")
-}
-
-model Product {
-  id              String   @id @default(cuid())
-  title           String
-  slug            String   @unique
-  description     String   @db.Text
-  price           Float    @default(0)
-  previewVideoUrl String?
-  fileUrl         String
-  thumbnailUrl    String
-  isPublished     Boolean  @default(false)
-  isFeatured      Boolean  @default(false)
-  viewCount       Int      @default(0)
-  categoryId      String
-  uploadedById    String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  category   Category       @relation(fields: [categoryId], references: [id])
-  uploadedBy User           @relation("UploadedBy", fields: [uploadedById], references: [id])
-  images     ProductImage[]
-  tags       ProductTag[]
-  purchases  Purchase[]
-  downloads  DownloadLog[]
-  saved      SavedItem[]
-  reviews    Review[]
-
-  @@map("products")
-}
-
-model ProductImage {
-  id        String   @id @default(cuid())
-  productId String
-  url       String
-  altText   String?
-  order     Int      @default(0)
-  isCover   Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@map("product_images")
-}
-
-model ProductTag {
-  productId String
-  tagId     String
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@id([productId, tagId])
-  @@map("product_tags")
-}
-
-model Purchase {
-  id              String          @id @default(cuid())
-  userId          String
-  productId       String
-  uploadedById    String
-  pricePaid       Float
-  currency        Currency        @default(USD)
-  gateway         PaymentGateway
-  status          PaymentStatus   @default(PENDING)
-  transactionId   String?         @unique
-  gatewayOrderId  String?     
-  gatewayResponse Json?   
-  purchasedAt     DateTime        @default(now())
-
-  user      User          @relation(fields: [userId], references: [id])
-  product   Product       @relation(fields: [productId], references: [id])
-  downloads DownloadLog[]
-
-  @@map("purchases")
-}
-
-model DownloadLog {
-  id           String   @id @default(cuid())
-  userId       String
-  productId    String
-  purchaseId   String
-  downloadedAt DateTime @default(now())
-  ipAddress    String?
-
-  user     User     @relation(fields: [userId], references: [id])
-  product  Product  @relation(fields: [productId], references: [id])
-  purchase Purchase @relation(fields: [purchaseId], references: [id])
-
-  @@map("download_logs")
-}
-
-model SavedItem {
-  id        String   @id @default(cuid())
-  userId    String
-  productId String
-  savedAt   DateTime @default(now())
-
-  user    User    @relation(fields: [userId], references: [id])
-  product Product @relation(fields: [productId], references: [id])
-
-  @@unique([userId, productId])
-  @@map("saved_items")
-}
-
-model Review {
-  id         String   @id @default(cuid())
+model LoginHistory {
+  id         String   @id @default(uuid())
   userId     String
-  productId  String
-  rating     Int
-  comment    String?
-  isApproved Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  ipAddress  String?
+  deviceInfo String?
+  loginAt    DateTime @default(now())
 
-  user    User    @relation(fields: [userId], references: [id])
-  product Product @relation(fields: [productId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, productId])
-  @@map("reviews")
+  @@map("login_history")
 }
+
+model OtpVerification {
+  id        String   @id @default(uuid())
+  phone     String
+  otp       String
+  purpose   String // 'register', 'forgot_password', 'withdrawal'
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("otp_verifications")
+}
+
+// ─────────────────────────────────────────
+// SUBSCRIPTION
+// ─────────────────────────────────────────
+
+model SubscriptionPlan {
+  id            String           @id @default(uuid())
+  name          String // "Basic", "Premium"
+  type          SubscriptionType @unique
+  price         Decimal          @db.Decimal(10, 2)
+  durationDays  Int // 30 for monthly
+  dailyAdLimit  Int
+  rewardPerAd   Decimal          @db.Decimal(10, 4)
+  minWithdrawal Decimal          @db.Decimal(10, 2)
+  features      String[] // List of features as array
+  isActive      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id          String             @id @default(uuid())
+  userId      String
+  planId      String
+  status      SubscriptionStatus @default(ACTIVE)
+  price       Decimal            @db.Decimal(10, 2)
+  startedAt   DateTime           @default(now())
+  expiresAt   DateTime
+  cancelledAt DateTime?
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────
+// TOPUP REQUEST
+// ─────────────────────────────────────────
+
+model TopupRequest {
+  id            String      @id @default(uuid())
+  userId        String
+  amount        Decimal     @db.Decimal(10, 2)
+  method        TopupMethod
+  transactionId String
+  senderNumber  String
+  status        TopupStatus @default(PENDING)
+  adminNote     String?
+  processedBy   String?
+  requestedAt   DateTime    @default(now())
+  processedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("topup_requests")
+}
+
+// ─────────────────────────────────────────
+// ADS
+// ─────────────────────────────────────────
+
+model Ad {
+  id              String    @id @default(uuid())
+  title           String
+  description     String?
+  adNetwork       AdNetwork
+  adType          AdType
+  adUnitId        String? // AdMob unit ID, Unity placement ID etc
+  rewardAmount    Decimal   @db.Decimal(10, 4) // BDT reward per view
+  durationSeconds Int       @default(30) // Minimum watch time
+  isActive        Boolean   @default(true)
+  targetBasic     Boolean   @default(true) // Show to basic users
+  targetPremium   Boolean   @default(true) // Show to premium users
+  priority        Int       @default(1) // Higher = show more
+  createdBy       String // Owner/Admin id
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  adWatches AdWatch[]
+
+  @@map("ads")
+}
+
+model AdWatch {
+  id           String    @id @default(uuid())
+  userId       String
+  adId         String
+  rewardEarned Decimal   @db.Decimal(10, 4)
+  adNetwork    AdNetwork
+  watchedAt    DateTime  @default(now())
+  ipAddress    String?
+  deviceId     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ad   Ad   @relation(fields: [adId], references: [id])
+
+  @@map("ad_watches")
+}
+
+model DailyAdLimit {
+  id         String   @id @default(uuid())
+  userId     String
+  date       DateTime @db.Date
+  watchCount Int      @default(0)
+  earned     Decimal  @default(0.00) @db.Decimal(10, 4)
+
+  @@unique([userId, date])
+  @@map("daily_ad_limits")
+}
+
+// ─────────────────────────────────────────
+// WITHDRAWAL
+// ─────────────────────────────────────────
+
+model Withdrawal {
+  id            String           @id @default(uuid())
+  userId        String
+  amount        Decimal          @db.Decimal(10, 2)
+  method        WithdrawalMethod
+  accountNumber String
+  accountName   String?
+  status        WithdrawalStatus @default(PENDING)
+  adminNote     String? // Rejection reason
+  processedBy   String? // Admin/Owner id
+  requestedAt   DateTime         @default(now())
+  processedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("withdrawals")
+}
+
+// ─────────────────────────────────────────
+// TRANSACTIONS (Ledger)
+// ─────────────────────────────────────────
+
+model Transaction {
+  id            String            @id @default(uuid())
+  userId        String
+  type          TransactionType
+  status        TransactionStatus @default(COMPLETED)
+  amount        Decimal           @db.Decimal(10, 2)
+  balanceBefore Decimal           @db.Decimal(10, 2)
+  balanceAfter  Decimal           @db.Decimal(10, 2)
+  description   String?
+  referenceId   String? // adWatchId or withdrawalId
+  createdAt     DateTime          @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("transactions")
+}
+
+// ─────────────────────────────────────────
+// REFERRAL SYSTEM
+// ─────────────────────────────────────────
+
+model Referral {
+  id             String   @id @default(uuid())
+  referredById   String
+  referredUserId String   @unique
+  bonusAmount    Decimal  @default(0.00) @db.Decimal(10, 2)
+  isPaid         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  referredBy   User @relation("ReferredBy", fields: [referredById], references: [id])
+  referredUser User @relation("ReferredUser", fields: [referredUserId], references: [id])
+
+  @@map("referrals")
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────
 
 model Notification {
-  id        String    @id @default(cuid())
+  id        String           @id @default(uuid())
   userId    String
+  type      NotificationType
   title     String
-  message   String
-  type      NotifType
-  refId     String?
-  refType   String?
-  isRead    Boolean   @default(false)
-  createdAt DateTime  @default(now())
+  body      String
+  isRead    Boolean          @default(false)
+  data      Json? // Extra data (withdrawal id etc)
+  createdAt DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
 }
 
-model SiteLog {
-  id        String    @id @default(cuid())
-  actorId   String
-  action    LogAction
-  entity    String
-  entityId  String?
-  detail    String?
-  ipAddress String?
-  userAgent String?
+// ─────────────────────────────────────────
+// BLOG (For AdSense)
+// ─────────────────────────────────────────
+
+model BlogPost {
+  id          String    @id @default(uuid())
+  title       String
+  content     String    @db.Text
+  excerpt     String?
+  slug        String    @unique
+  coverImage  String?
+  tags        String[]
+  isPublished Boolean   @default(false)
+  publishedAt DateTime?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("blog_posts")
+}
+
+// ─────────────────────────────────────────
+// APP SETTINGS (Owner controls everything)
+// ─────────────────────────────────────────
+
+model AppSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedBy   String? // Owner id
+  updatedAt   DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
+// Default settings keys:
+// reward_per_ad_basic      → "0.50"
+// reward_per_ad_premium    → "1.00"
+// daily_limit_basic        → "5"
+// daily_limit_premium      → "50"
+// min_withdrawal_basic     → "100"
+// min_withdrawal_premium   → "50"
+// referral_bonus           → "10"
+// maintenance_mode         → "false"
+// app_version              → "1.0.0"
+// force_update             → "false"
+
+// ─────────────────────────────────────────
+// REVENUE TRACKING (Owner dashboard)
+// ─────────────────────────────────────────
+
+model RevenueRecord {
+  id             String   @id @default(uuid())
+  date           DateTime @unique @db.Date
+  admobRevenue   Decimal  @default(0.00) @db.Decimal(12, 2)
+  adsenseRevenue Decimal  @default(0.00) @db.Decimal(12, 2)
+  unityRevenue   Decimal  @default(0.00) @db.Decimal(12, 2)
+  otherRevenue   Decimal  @default(0.00) @db.Decimal(12, 2)
+  totalRevenue   Decimal  @default(0.00) @db.Decimal(12, 2)
+  totalPaidOut   Decimal  @default(0.00) @db.Decimal(12, 2)
+  profit         Decimal  @default(0.00) @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("revenue_records")
+}
+
+// ─────────────────────────────────────────
+// BONUS / PROMO SYSTEM
+// ─────────────────────────────────────────
+
+model Bonus {
+  id        String    @id @default(uuid())
+  userId    String
+  amount    Decimal   @db.Decimal(10, 2)
+  reason    String // "welcome_bonus", "referral", "promo" etc
+  isApplied Boolean   @default(false)
+  appliedAt DateTime?
+  createdBy String // Owner/Admin id
   createdAt DateTime  @default(now())
 
-  actor User @relation("LogActor", fields: [actorId], references: [id])
-
-  @@index([actorId])
-  @@index([entity, entityId])
-  @@index([createdAt])
-  @@map("site_logs")
-}
-
-model EmailLog {
-  id             String        @id @default(cuid())
-  sentById       String
-  subject        String
-  body           String        @db.Text
-  recipientType  RecipientType
-  categoryId     String?
-  recipientCount Int
-  sentAt         DateTime      @default(now())
-
-  sentBy User @relation(fields: [sentById], references: [id])
-
-  @@map("email_logs")
-}
-
-model SiteSetting {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  value       String   @db.Text
-  group       String
-  description String?
-  updatedAt   DateTime @updatedAt
-  updatedById String?
-
-  updatedBy User? @relation("SettingUpdatedBy", fields: [updatedById], references: [id])
-
-  @@map("site_settings")
+  @@map("bonuses")
 }

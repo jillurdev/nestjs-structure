@@ -22,41 +22,47 @@ let PrismaExceptionFilter = PrismaExceptionFilter_1 = class PrismaExceptionFilte
             const res = exception.getResponse();
             return response.status(status).json({
                 statusCode: status,
-                message: typeof res === 'string' ? res : res.message || 'Something went wrong',
+                success: false,
+                message: typeof res === "string" ? res : res.message || "Something went wrong",
+                data: null,
             });
         }
         const prismaError = exception;
-        if (prismaError?.code?.startsWith('P')) {
+        if (prismaError?.code?.startsWith("P")) {
             const { status, message } = this.handlePrismaError(prismaError);
             return response.status(status).json({
                 statusCode: status,
+                success: false,
                 message,
+                data: null,
             });
         }
         return response.status(common_1.HttpStatus.INTERNAL_SERVER_ERROR).json({
             statusCode: common_1.HttpStatus.INTERNAL_SERVER_ERROR,
-            message: 'Internal server error',
+            success: false,
+            message: "Internal server error",
+            data: null,
         });
     }
     handlePrismaError(exception) {
         switch (exception.code) {
-            case 'P2002': {
+            case "P2002": {
                 const fields = exception.meta?.target ||
                     exception.meta?.constraint?.fields ||
                     exception.meta?.driverAdapterError?.cause?.constraint?.fields ||
                     [];
-                const fieldNames = Array.isArray(fields) ? fields.join(', ') : fields;
+                const fieldNames = Array.isArray(fields) ? fields.join(", ") : fields;
                 return {
                     status: common_1.HttpStatus.CONFLICT,
                     message: `A record with this ${fieldNames} already exists`,
                 };
             }
-            case 'P2025':
+            case "P2025":
                 return {
                     status: common_1.HttpStatus.NOT_FOUND,
-                    message: exception.meta?.cause ?? 'Record not found',
+                    message: exception.meta?.cause ?? "Record not found",
                 };
-            case 'P2003':
+            case "P2003":
                 return {
                     status: common_1.HttpStatus.BAD_REQUEST,
                     message: `Related record not found for ${exception.meta?.field_name}`,
@@ -64,7 +70,7 @@ let PrismaExceptionFilter = PrismaExceptionFilter_1 = class PrismaExceptionFilte
             default:
                 return {
                     status: common_1.HttpStatus.INTERNAL_SERVER_ERROR,
-                    message: 'A database error occurred',
+                    message: "A database error occurred",
                 };
         }
     }

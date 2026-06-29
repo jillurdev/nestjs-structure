@@ -1,52 +1,29 @@
-import { UsersService } from './users.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { VerifyEmailDto } from './dto/verify-email.dto';
-import { ResendOtpDto } from './dto/resend-otp.dto';
+import { UsersService } from "./users.service";
+import { UpdateUserDto } from "./dto/update-user.dto";
+import { Response } from "express";
+import { CreateUserDto } from "./dto/create-user.dto";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 export declare class UsersController {
     private readonly usersService;
     constructor(usersService: UsersService);
-    getAllUsers(): Promise<{
+    register(dto: CreateUserDto, res: Response): Promise<void>;
+    getMe(req: any, res: Response): Promise<void>;
+    getMyStats(req: any, res: Response): Promise<void>;
+    saveFcmToken(body: {
+        fcmToken: string;
+    }, req: any, res: Response): Promise<void>;
+    getUser(id: string, res: Response): Promise<void>;
+    updateUser(id: string, dto: UpdateUserDto, res: Response): Promise<void>;
+    updateMe(user: {
         id: string;
-        name: string;
-        email: string;
-        role: import(".prisma/client").$Enums.Role;
-        status: import(".prisma/client").$Enums.UserStatus;
-        avatar: string | null;
-        createdAt: Date;
-    }[]>;
-    getSingleUser(id: string): Promise<{
+    }, dto: UpdateUserDto, res: Response): Promise<void>;
+    changePassword(user: {
         id: string;
-        name: string;
-        email: string;
-        role: import(".prisma/client").$Enums.Role;
-        status: import(".prisma/client").$Enums.UserStatus;
-        avatar: string | null;
-        createdAt: Date;
-    }>;
-    createUser(dto: CreateUserDto): Promise<{
-        id: string;
-        name: string;
-        email: string;
-        role: import(".prisma/client").$Enums.Role;
-        status: import(".prisma/client").$Enums.UserStatus;
-        createdAt: Date;
-    }>;
-    verifyEmail(dto: VerifyEmailDto): Promise<{
-        message: string;
-    }>;
-    resendOtp(dto: ResendOtpDto): Promise<{
-        message: string;
-    }>;
-    updateUser(id: string, dto: UpdateUserDto): Promise<{
-        id: string;
-        name: string;
-        email: string;
-        role: import(".prisma/client").$Enums.Role;
-        status: import(".prisma/client").$Enums.UserStatus;
-        updatedAt: Date;
-    }>;
-    deleteUser(id: string): Promise<{
-        message: string;
-    }>;
+    }, dto: ChangePasswordDto, res: Response): Promise<void>;
+    getAllUsers(res: Response): Promise<void>;
+    banUser(id: string, body: {
+        reason: string;
+    }, req: any, res: Response): Promise<void>;
+    unbanUser(id: string, res: Response): Promise<void>;
+    deleteUser(id: string, res: Response): Promise<void>;
 }

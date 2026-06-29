@@ -13,18 +13,17 @@ exports.JwtStrategy = void 0;
 const common_1 = require("@nestjs/common");
 const passport_1 = require("@nestjs/passport");
 const passport_jwt_1 = require("passport-jwt");
-const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../../../database/prisma/prisma.service");
+const config_1 = require("../../../config");
 let JwtStrategy = class JwtStrategy extends (0, passport_1.PassportStrategy)(passport_jwt_1.Strategy) {
-    constructor(config, prisma) {
+    constructor(prisma) {
         super({
             jwtFromRequest: passport_jwt_1.ExtractJwt.fromExtractors([
-                (req) => req?.cookies?.token,
+                (req) => req?.cookies?.accessToken,
                 passport_jwt_1.ExtractJwt.fromAuthHeaderAsBearerToken(),
             ]),
-            secretOrKey: config.get('jwt.secret'),
+            secretOrKey: config_1.configs.jwt.secret,
         });
-        this.config = config;
         this.prisma = prisma;
     }
     async validate(payload) {
@@ -34,21 +33,26 @@ let JwtStrategy = class JwtStrategy extends (0, passport_1.PassportStrategy)(pas
                 id: true,
                 name: true,
                 email: true,
+                phone: true,
                 role: true,
-                status: true,
+                isActive: true,
+                isBanned: true,
+                subscriptionType: true,
+                balance: true,
             },
         });
         if (!user)
             throw new common_1.UnauthorizedException();
-        if (user.status !== 'ACTIVE')
-            throw new common_1.UnauthorizedException('Account is not active');
+        if (!user.isActive)
+            throw new common_1.UnauthorizedException("Account is not active");
+        if (user.isBanned)
+            throw new common_1.UnauthorizedException("Account is banned");
         return user;
     }
 };
 exports.JwtStrategy = JwtStrategy;
 exports.JwtStrategy = JwtStrategy = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [config_1.ConfigService,
-        prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], JwtStrategy);
 //# sourceMappingURL=jwt.strategy.js.map

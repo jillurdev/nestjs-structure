@@ -26,6 +26,14 @@ __decorate([
 ], UpdateUserDto.prototype, "email", void 0);
 __decorate([
     (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.Matches)(/^(?:\+?88)?01[3-9]\d{8}$/, {
+        message: "Invalid Bangladeshi phone number",
+    }),
+    __metadata("design:type", String)
+], UpdateUserDto.prototype, "phone", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
     (0, class_validator_1.MinLength)(6),
     (0, class_validator_1.IsOptional)(),
     __metadata("design:type", String)
@@ -33,9 +41,6 @@ __decorate([
 __decorate([
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.Matches)(/^\+?[1-9]\d{1,14}$/, {
-        message: 'Invalid phone number',
-    }),
     __metadata("design:type", String)
-], UpdateUserDto.prototype, "phone", void 0);
+], UpdateUserDto.prototype, "avatarUrl", void 0);
 //# sourceMappingURL=update-user.dto.js.map

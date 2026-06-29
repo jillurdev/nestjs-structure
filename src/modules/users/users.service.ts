@@ -1,222 +1,220 @@
 import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-  BadRequestException,
-} from '@nestjs/common';
-import { PrismaService } from '@/database/prisma/prisma.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-import * as bcrypt from 'bcrypt';
-import { MailService } from '@/shared/mail/mail.service';
-import { VerifyEmailDto } from './dto/verify-email.dto';
-import { ResendOtpDto } from './dto/resend-otp.dto';
+	BadRequestException,
+	ConflictException,
+	Injectable,
+} from "@nestjs/common";
+import { PrismaService } from "@/database/prisma/prisma.service";
+import { UpdateUserDto } from "./dto/update-user.dto";
+import * as bcrypt from "bcrypt";
+import { AppMessages } from "@/common/AppMessages/app.messages";
+import { CreateUserDto } from "./dto/create-user.dto";
+import { Role } from "@/common/decorators/roles.decorator";
+import { ReferralService } from "../referral/referral.service";
 
 @Injectable()
 export class UsersService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly mail: MailService,
-  ) {}
+	constructor(
+		private readonly prisma: PrismaService,
+		private readonly  referralService: ReferralService,
+	) {}
 
-  async findAllUsers() {
-    return this.prisma.user.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        avatar: true,
-        createdAt: true,
-      },
-    });
-  }
+	private async generateReferralCode(): Promise<string> {
+		const random = Math.floor(100000 + Math.random() * 900000).toString();
+		const code = `TN-${random}`;
+		const existing = await this.prisma.user.findFirst({
+			where: { referralCode: code },
+		});
+		if (existing) return this.generateReferralCode();
+		return code;
+	}
 
-  async findUserById(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        avatar: true,
-        createdAt: true,
-      },
-    });
-    if (!user) throw new NotFoundException('User not found');
-    return user;
-  }
+	// admin/ owner
+	async findAllUsers() {
+		return this.prisma.user.findMany({
+			where: { role: Role.USER },
+			select: {
+				id: true,
+				name: true,
+				email: true,
+				phone: true,
+				role: true,
+				isActive: true,
+				isBanned: true,
+				subscriptionType: true,
+				balance: true,
+				totalEarned: true,
+				totalWithdrawn: true,
+				createdAt: true,
+			},
+			orderBy: { createdAt: "desc" },
+		});
+	}
 
-  async createUser(dto: CreateUserDto) {
+	async findUserById(id: string) {
+		return this.prisma.findUserByIdOrThrow(id);
+	}
 
-    const existingEmail = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-    if (existingEmail) throw new ConflictException('Email already in use');
+	async findUserByPhone(phone: string) {
+		return this.prisma.findUserByPhone(phone);
+	}
 
-    const existingPhone = await this.prisma.user.findFirst({
-      where: { phone: dto.phone },
-    });
+	async createUser(dto: CreateUserDto) {
+		if (await this.prisma.userExistsByPhone(dto.phone))
+			throw new ConflictException(AppMessages.user.phoneExists);
 
-    if (existingPhone)
-      throw new ConflictException('Phone number already in use');
+		if (dto.email && (await this.prisma.userExistsByEmail(dto.email)))
+			throw new ConflictException(AppMessages.user.emailExists);
 
-    const password = await bcrypt.hash(dto.password, 10);
+		if (dto.deviceId) {
+			const count = await this.prisma.userCountByDeviceId(dto.deviceId);
+			if (count >= 2)
+				throw new BadRequestException(AppMessages.user.deviceLimit);
+		}
 
-    const user = await this.prisma.user.create({
-      data: {
-        name: dto.name,
-        email: dto.email,
-        phone: dto.phone,
-        password,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        createdAt: true,
-      },
-    });
+		const passwordHash = await bcrypt.hash(dto.password, 10);
+		const referralCode = await this.generateReferralCode();
 
-    return user;
-  }
+		const user = await this.prisma.user.create({
+			data: {
+				name: dto.name,
+				phone: dto.phone,
+				passwordHash,
+				referralCode,
+				...(dto.email && { email: dto.email }),
+				...(dto.deviceId && { deviceId: dto.deviceId }),
+			},
+			select: {
+				id: true,
+				name: true,
+				email: true,
+				referralCode: true,
+				phone: true,
+				role: true,
+				subscriptionType: true,
+				balance: true,
+				createdAt: true,
+			},
+		});
 
-  // async createUser(dto: CreateUserDto) {
-  //   console.log('🚀 ~ UsersService ~ createUser ~ dto:', dto);
+		if (dto.referralCode) {
+			try {
+				await this.referralService.applyReferral(user.id, dto.referralCode);
+			} catch (e) {
+				// referral fail হলেও registration সফল হবে
+			}
+		}
 
-  //   const existing = await this.prisma.user.findUnique({
-  //     where: { email: dto.email },
-  //   });
-  //   if (existing) throw new ConflictException('Email already in use');
+		return user;
+	}
 
-  //   const password = await bcrypt.hash(dto.password, 10);
+	async saveFcmToken(userId: string, fcmToken: string) {
+		return this.prisma.user.update({
+			where: { id: userId },
+			data: { fcmToken },
+			select: { id: true },
+		});
+	}
 
-  //   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  //   const otpExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+	async updateUser(id: string, dto: UpdateUserDto) {
+		await this.prisma.findUserByIdOrThrow(id);
 
-  //   const user = await this.prisma.user.create({
-  //     data: {
-  //       name: dto.name,
-  //       email: dto.email,
-  //       phone: dto.phone,
-  //       password,
-  //       emailVerifyToken: otp,
-  //       emailVerifyExpiry: otpExpiry,
-  //     },
-  //     select: {
-  //       id: true,
-  //       name: true,
-  //       email: true,
-  //       role: true,
-  //       status: true,
-  //       createdAt: true,
-  //     },
-  //   });
+		const data: any = {};
+		if (dto.name) data.name = dto.name;
+		if (dto.email) data.email = dto.email;
+		if (dto.phone) data.phone = dto.phone;
+		if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 10);
+		if (dto.avatarUrl) data.avatarUrl = dto.avatarUrl;
 
-  //   await this.mail.sendVerificationEmail(dto.email, dto.name, otp);
+		return this.prisma.user.update({
+			where: { id },
+			data,
+			select: {
+				id: true,
+				name: true,
+				email: true,
+				phone: true,
+				role: true,
+				subscriptionType: true,
+				avatarUrl: true,
+				updatedAt: true,
+			},
+		});
+	}
 
-  //   return {
-  //     ...user,
-  //     message: 'Verification code sent to your email',
-  //   };
-  // }
+	async changePassword(
+		id: string,
+		currentPassword: string,
+		newPassword: string,
+	) {
+		if (currentPassword === newPassword) {
+			throw new BadRequestException(AppMessages.user.passwordSameAsOld);
+		}
 
-  async verifyEmail(dto: VerifyEmailDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
+		const user = await this.prisma.findUserByIdOrThrow(id);
 
-    if (!user) throw new NotFoundException('User not found');
-    if (user.status === 'ACTIVE')
-      throw new ConflictException('Email already verified');
+		const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+		if (!isMatch)
+			throw new BadRequestException(AppMessages.user.incorrectPassword);
 
-    if (!user.emailVerifyToken || user.emailVerifyToken !== dto.otp) {
-      throw new BadRequestException('Invalid OTP');
-    }
+		await this.prisma.user.update({
+			where: { id },
+			data: { passwordHash: await bcrypt.hash(newPassword, 10) },
+		});
+	}
 
-    if (!user.emailVerifyExpiry || user.emailVerifyExpiry < new Date()) {
-      throw new BadRequestException('OTP expired');
-    }
+	async banUser(id: string, reason: string, adminId: string) {
+		await this.prisma.findUserByIdOrThrow(id);
 
-    await this.prisma.user.update({
-      where: { email: dto.email },
-      data: {
-        status: 'ACTIVE',
-        emailVerifyToken: null,
-        emailVerifyExpiry: null,
-      },
-    });
+		return this.prisma.user.update({
+			where: { id },
+			data: {
+				isBanned: true,
+				banReason: reason,
+				bannedAt: new Date(),
+				bannedBy: adminId,
+			},
+			select: { id: true, isBanned: true, banReason: true },
+		});
+	}
 
-    return { message: 'Email verified successfully' };
-  }
+	async unbanUser(id: string) {
+		await this.prisma.findUserByIdOrThrow(id);
 
-  async resendOtp(dto: ResendOtpDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
+		return this.prisma.user.update({
+			where: { id },
+			data: {
+				isBanned: false,
+				banReason: null,
+				bannedAt: null,
+				bannedBy: null,
+			},
+			select: { id: true, isBanned: true },
+		});
+	}
 
-    if (!user) throw new NotFoundException('User not found');
-    if (user.status === 'ACTIVE')
-      throw new ConflictException('Email already verified');
+	async getUserStats(id: string) {
+		const user = await this.prisma.findUserByIdOrThrow(id);
 
-    if (user.emailVerifyExpiry) {
-      const cooldown = new Date(
-        user.emailVerifyExpiry.getTime() - 13 * 60 * 1000,
-      );
-      if (new Date() < cooldown) {
-        throw new BadRequestException(
-          'Please wait 2 minutes before requesting a new OTP',
-        );
-      }
-    }
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+		const todayRecord = await this.prisma.dailyAdLimit.findUnique({
+			where: { userId_date: { userId: id, date: today } },
+		});
 
-    await this.prisma.user.update({
-      where: { email: dto.email },
-      data: {
-        emailVerifyToken: otp,
-        emailVerifyExpiry: otpExpiry,
-      },
-    });
+		return {
+			balance: user.balance,
+			totalEarned: user.totalEarned,
+			totalWithdrawn: user.totalWithdrawn,
+			subscriptionType: user.subscriptionType,
+			todayWatchCount: todayRecord?.watchCount ?? 0,
+			todayEarned: todayRecord?.earned ?? 0,
+		};
+	}
 
-    await this.mail.sendVerificationEmail(dto.email, user.name, otp);
-
-    return { message: 'OTP resent successfully' };
-  }
-
-  async updateUser(id: string, dto: UpdateUserDto) {
-    await this.findUserById(id);
-
-    const data: any = {};
-    if (dto.name) data.name = dto.name;
-    if (dto.email) data.email = dto.email;
-    if (dto.phone) data.phone = dto.phone;
-    if (dto.password) data.password = await bcrypt.hash(dto.password, 10);
-
-    return this.prisma.user.update({
-      where: { id },
-      data,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        updatedAt: true,
-      },
-    });
-  }
-
-  async deleteUser(id: string) {
-    await this.findUserById(id);
-    await this.prisma.user.delete({ where: { id } });
-    return { message: 'User deleted successfully' };
-  }
+	async deleteUser(id: string) {
+		await this.prisma.findUserByIdOrThrow(id);
+		await this.prisma.user.delete({ where: { id } });
+		return { message: AppMessages.user.deleted };
+	}
 }
